@@ -6,7 +6,7 @@ ComManager::ComManager(const char *ssid, const char *password,
       _remotePort(0), _isStreaming(false), _pulseType(PULSE_SINGLE),
       _isServoEnabled(false), _streamMode(STREAM_RAW), _txGain(1.0f),
       _isTxEnabled(false), _targetServoAngle(-1) {
-  for (int i = 0; i < 3; ++i) {
+  for (size_t i = 0; i < Constant::NUM_QUEUED_FRAMES; ++i) {
     _queuedFrames[i].ready = false;
   }
 }
@@ -223,7 +223,7 @@ void ComManager::sendFrameAsync(uint16_t frameId, const int16_t *samples,
 
 bool ComManager::processAsyncSends() {
   bool sentAny = false;
-  for (int i = 0; i < 3; ++i) {
+  for (size_t i = 0; i < Constant::NUM_QUEUED_FRAMES; ++i) {
     if (_queuedFrames[i].ready) {
       sendFrame(_queuedFrames[i].frameId, _queuedFrames[i].samples,
                 Constant::ADC_SAMPLES, _queuedFrames[i].receiverId);

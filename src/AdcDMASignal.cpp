@@ -1,4 +1,5 @@
 #include "AdcDMASignal.hpp"
+#include "Constant.hpp"
 
 AdcDMASignal::AdcDMASignal() {}
 
@@ -8,7 +9,7 @@ void AdcDMASignal::init() {
 
     i2s_config_t i2s_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX | I2S_MODE_ADC_BUILT_IN),
-        .sample_rate = 160000, // fs = 160 kHz
+        .sample_rate = static_cast<uint32_t>(Constant::SAMPLE_RATE), // fs = 160 kHz
         .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
         .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT,
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0)
@@ -17,8 +18,8 @@ void AdcDMASignal::init() {
         .communication_format = I2S_COMM_FORMAT_I2S_MSB,
 #endif
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-        .dma_buf_count = 8,
-        .dma_buf_len = 64,
+        .dma_buf_count = Constant::I2S_DMA_BUF_COUNT,
+        .dma_buf_len = Constant::I2S_DMA_BUF_LEN,
         .use_apll = false,
         .tx_desc_auto_clear = false,
         .fixed_mclk = 0

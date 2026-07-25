@@ -63,8 +63,11 @@ constexpr int FFT_WINDOW_SIZE = 15;
 // Length of the matched filter coefficients, matching single pulse length (Value: 8)
 constexpr size_t FILTER_COEFFS_LEN = 8;
 
+// Number of chips in Barker 13 pulse waveform (Value: 13)
+constexpr size_t BARKER13_CHIPS = 13;
+
 // Total length in samples for the Barker 13 pulse waveform (Value: 104)
-constexpr size_t BARKER13_PULSE_LEN = 13 * FILTER_COEFFS_LEN;
+constexpr size_t BARKER13_PULSE_LEN = BARKER13_CHIPS * FILTER_COEFFS_LEN;
 
 // Number of pulses in the slow-time dimension for Doppler processing (Value: 16)
 constexpr size_t SLOW_TIME_LEN = 16;
@@ -73,7 +76,7 @@ constexpr size_t SLOW_TIME_LEN = 16;
 constexpr size_t DOPPLER_FFT_LEN = 8;
 
 // Conversion factor relating CPU cycles to ADC samples (Value: 6.25f)
-constexpr float CPU_CYCLES_PER_SAMPLE_FACTOR = 6.25f;
+constexpr float CPU_CYCLES_PER_SAMPLE_FACTOR = 1000000.0f / static_cast<float>(SAMPLE_RATE);
 
 // Calibration factor to adjust actual physical sampling rate discrepancy (Value: 1.10f)
 constexpr float SAMPLING_CALIBRATION_FACTOR = 1.10f;
@@ -82,7 +85,7 @@ constexpr float SAMPLING_CALIBRATION_FACTOR = 1.10f;
 constexpr float SPEED_OF_SOUND = 343.0f;
 
 // --- Q15 Fixed-Point Math Parameters ---
-// Number of fraction bits in Q15 fixed-point format (Value: 15)
+// Fraction bits in Q15 fixed-point format (Value: 15)
 constexpr int Q15_SHIFT = 15;
 
 // Maximum value of a signed 16-bit Q15 fixed-point number (Value: 32767)
@@ -184,8 +187,11 @@ constexpr uint32_t TX_YIELD_THRESHOLD_US = 2000;
 // Delay in milliseconds between WiFi connection status polls (Value: 500)
 constexpr uint32_t WIFI_CONNECT_DELAY_MS = 500;
 
+// Timeout in milliseconds for WiFi connection (Value: 10000)
+constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 10000;
+
 // Maximum iteration count for WiFi connection retry, representing 10s timeout (Value: 20)
-constexpr uint32_t WIFI_CONNECT_TIMEOUT_LIMIT = 10000 / WIFI_CONNECT_DELAY_MS;
+constexpr uint32_t WIFI_CONNECT_TIMEOUT_LIMIT = WIFI_CONNECT_TIMEOUT_MS / WIFI_CONNECT_DELAY_MS;
 
 // Delay in milliseconds for ARP resolution before sending UDP packets (Value: 300)
 constexpr uint32_t WIFI_ARP_DELAY_MS = 300;
@@ -234,6 +240,34 @@ constexpr float ROUND_TRIP_FACTOR = 2.0f;
 
 // Pulse repetition interval in seconds, converted from milliseconds (Value: 0.03f)
 constexpr float PRI_SECONDS = static_cast<float>(PRI_SINGLE_MS) / 1000.0f;
+
+// --- Pre-bias and buffer size constants ---
+// Number of pre-bias samples prepended to DAC signals (Value: 4)
+constexpr size_t DAC_PRE_BIAS_SAMPLES = 4;
+
+// Number of receiver channels/slots in ComManager (Value: 3)
+constexpr size_t NUM_QUEUED_FRAMES = 3;
+
+// I2S DMA Buffer Configuration
+constexpr int I2S_DMA_BUF_COUNT = 8;
+constexpr int I2S_DMA_BUF_LEN = 64;
+
+// --- Alignment & Synchronization ---
+// Index to start searching for jitter peaks (Value: 2)
+constexpr int JITTER_SEARCH_START_IDX = 2;
+
+// Log output interval in number of frames (Value: 50)
+constexpr uint32_t LOG_INTERVAL_FRAMES = 50;
+
+// Receiver channel identifier for Rx1 (Value: 1)
+constexpr uint8_t RECEIVER_ID_RX1 = 1;
+
+// --- System priority and delay ---
+// Main task scheduling priority (Value: 20)
+constexpr uint32_t MAIN_TASK_PRIORITY = 20;
+
+// Wait time in milliseconds when not streaming (Value: 100)
+constexpr uint32_t WAIT_CONNECT_DELAY_MS = 100;
 } // namespace Constant
 
 #endif // CONSTANT_HPP

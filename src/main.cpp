@@ -34,8 +34,8 @@ ReceiverDMAApp receiverApp(adcService);
 SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp);
 
 void setup() {
-  Serial.begin(115200);
-  delay(1000);
+  Serial.begin(Constant::SERIAL_BAUD_RATE);
+  delay(Constant::SETUP_DELAY_MS);
   Serial.println("Khởi động hệ thống test_DMA...");
 
   // 1. Khởi tạo ComManager để kết nối WiFi trước khi cấu hình ADC
@@ -52,8 +52,8 @@ void setup() {
   receiverApp.init();
   syncApp.init();
 
-  // Nâng ưu tiên của loopTask lên 20 (cao hơn WiFi/mạng) để triệt tiêu Jitter khi lập lịch
-  vTaskPrioritySet(NULL, 20);
+  // Nâng ưu tiên của loopTask lên MAIN_TASK_PRIORITY (cao hơn WiFi/mạng) để triệt tiêu Jitter khi lập lịch
+  vTaskPrioritySet(NULL, Constant::MAIN_TASK_PRIORITY);
 }
 
 uint16_t frameId = 0;
@@ -78,6 +78,6 @@ void loop() {
     delay(0);
   } else {
     // Chờ kết nối
-    delay(100);
+    delay(Constant::WAIT_CONNECT_DELAY_MS);
   }
 }

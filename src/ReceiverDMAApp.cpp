@@ -37,7 +37,7 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
         // Đồng bộ hóa phần mềm để loại bỏ jitter:
         // 1. Tìm giá trị dương lớn nhất trong cửa sổ rộng (bỏ qua mẫu 0, 1) để làm mốc biên độ
         volatile int16_t max_val = 0;
-        for (int i = 2; i < Constant::JITTER_WINDOW_LEN; ++i) {
+        for (int i = Constant::JITTER_SEARCH_START_IDX; i < Constant::JITTER_WINDOW_LEN; ++i) {
             int16_t val = _send_adc_buffer[i];
             if (val > max_val) {
                 max_val = val;
@@ -47,7 +47,7 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
         // 2. Tìm đỉnh cục bộ dương ĐẦU TIÊN vượt quá 45% của max_val để tránh hiện tượng nhảy chu kỳ (cycle jumping)
         volatile int peak_idx = Constant::DEFAULT_PEAK_IDX; // Mặc định nếu không tìm thấy
         volatile int16_t threshold = (max_val * Constant::PEAK_THRESHOLD_PERCENT) / 100;
-        for (int i = 2; i < Constant::JITTER_WINDOW_LEN - 2; ++i) {
+        for (int i = Constant::JITTER_SEARCH_START_IDX; i < Constant::JITTER_WINDOW_LEN - Constant::JITTER_SEARCH_START_IDX; ++i) {
             int16_t val = _send_adc_buffer[i];
             if (val >= threshold && val >= _send_adc_buffer[i - 1] && val >= _send_adc_buffer[i + 1]) {
                 peak_idx = i;
@@ -87,13 +87,13 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
 
         static uint32_t loopCount = 0;
         loopCount++;
-        if (loopCount % 50 == 0) {
+        if (loopCount % Constant::LOG_INTERVAL_FRAMES == 0) {
             Serial.printf("[LOG] PRI: %.2f ms | Số mẫu: %u | Tần số lấy mẫu thực tế: %.2f kHz (Đọc trong %llu us)\n",
                           priMs, Constant::ADC_SAMPLES, fs_actual / 1000.0, elapsed_time);
         }
 
         // Gửi dữ liệu qua giao thức UDP của ComManager đến SonarViewer dưới định dạng kênh Rx1 (receiverId = 1)
-        com.sendFrame(frameId++, _send_adc_buffer, Constant::ADC_SAMPLES, 1);
+        com.sendFrame(frameId++, _send_adc_buffer, Constant::ADC_SAMPLES, Constant::RECEIVER_ID_RX1);
     } else {
         Serial.printf("Lỗi đọc I2S: %d, số bytes đọc được: %u\n", res, bytes_read);
     }

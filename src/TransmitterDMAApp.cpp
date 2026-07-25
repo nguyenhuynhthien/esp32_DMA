@@ -4,19 +4,19 @@
 TransmitterDMAApp::TransmitterDMAApp(DacDMAService& dacService) : _dacService(dacService) {}
 
 void TransmitterDMAApp::init() {
-    // Tự động thêm 4 điểm bias (127) ở đầu và copy SINGLE_PULSE_WAVE vào buffer
-    memset(_single_pulse, Constant::DAC_DC_BIAS, 4);
-    memcpy(_single_pulse + 4, Constant::SINGLE_PULSE_WAVE, Constant::FILTER_COEFFS_LEN);
+    // Tự động thêm bias ở đầu và copy SINGLE_PULSE_WAVE vào buffer
+    memset(_single_pulse, Constant::DAC_DC_BIAS, Constant::DAC_PRE_BIAS_SAMPLES);
+    memcpy(_single_pulse + Constant::DAC_PRE_BIAS_SAMPLES, Constant::SINGLE_PULSE_WAVE, Constant::FILTER_COEFFS_LEN);
 
-    // Tự động thêm 4 điểm bias (127) ở đầu và copy BARKER13_PULSE_WAVE vào buffer
-    memset(_barker13_pulse, Constant::DAC_DC_BIAS, 4);
-    memcpy(_barker13_pulse + 4, Constant::BARKER13_PULSE_WAVE, Constant::BARKER13_PULSE_LEN);
+    // Tự động thêm bias ở đầu và copy BARKER13_PULSE_WAVE vào buffer
+    memset(_barker13_pulse, Constant::DAC_DC_BIAS, Constant::DAC_PRE_BIAS_SAMPLES);
+    memcpy(_barker13_pulse + Constant::DAC_PRE_BIAS_SAMPLES, Constant::BARKER13_PULSE_WAVE, Constant::BARKER13_PULSE_LEN);
 }
 
 void IRAM_ATTR TransmitterDMAApp::transmit(ComManager::PulseType pulseType) {
     if (pulseType == ComManager::PULSE_BARKER13) {
-        _dacService.transmitPulse(_barker13_pulse, Constant::BARKER13_PULSE_LEN + 4);
+        _dacService.transmitPulse(_barker13_pulse, Constant::BARKER13_PULSE_LEN + Constant::DAC_PRE_BIAS_SAMPLES);
     } else {
-        _dacService.transmitPulse(_single_pulse, Constant::FILTER_COEFFS_LEN + 4);
+        _dacService.transmitPulse(_single_pulse, Constant::FILTER_COEFFS_LEN + Constant::DAC_PRE_BIAS_SAMPLES);
     }
 }

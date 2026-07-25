@@ -60,7 +60,7 @@ private:
         uint8_t receiverId;
         volatile bool ready;
     };
-    QueuedFrame _queuedFrames[3];
+    QueuedFrame _queuedFrames[Constant::NUM_QUEUED_FRAMES];
 };
 
 
