@@ -154,16 +154,6 @@ void loop() {
             // Tính toán tần số lấy mẫu thực tế dựa trên thời gian thực tế thu nhận
             double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
 
-            // In log chu kỳ và tần số thực tế theo định kỳ (mỗi 50 chu kỳ) để giám sát
-            loopCount++;
-            if (loopCount % 50 == 0) {
-                Serial.printf("[LOG] Thu nhận %u mẫu trong %llu us. Tần số lấy mẫu thực tế: %.2f kHz (Chu kỳ lấy mẫu thực tế: %.4f us)\n",
-                              Constant::ADC_SAMPLES,
-                              elapsed_time,
-                              fs_actual / 1000.0,
-                              (double)elapsed_time / Constant::ADC_SAMPLES);
-            }
-
             // Tính giá trị trung bình (DC bias) của buffer thô
             int32_t sum = 0;
             for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
@@ -178,6 +168,66 @@ void loop() {
                 int32_t centered = ((int32_t)raw_adc_buffer[i] - mean) << 4;
                 send_adc_buffer[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
             }
+
+            // Đồng bộ hóa phần mềm để loại bỏ jitter:
+            // 1. Tìm giá trị tuyệt đối lớn nhất trong cửa sổ 120 mẫu đầu tiên để làm mốc biên độ
+            int16_t max_val = 0;
+            for (int i = 0; i < 120; ++i) {
+                int16_t abs_val = abs(send_adc_buffer[i]);
+                if (abs_val > max_val) {
+                    max_val = abs_val;
+                }
+            }
+
+            // 2. Tìm đỉnh cục bộ (local peak) ĐẦU TIÊN vượt quá 65% của max_val để tránh hiện tượng nhảy chu kỳ (cycle jumping)
+            int peak_idx = 8; // Mặc định nếu không tìm thấy
+            int16_t threshold = (max_val * 65) / 100;
+            for (int i = 2; i < 118; ++i) {
+                int16_t val = abs(send_adc_buffer[i]);
+                if (val >= threshold && 
+                    val >= abs(send_adc_buffer[i-1]) && 
+                    val >= abs(send_adc_buffer[i+1])) {
+                    peak_idx = i;
+                    break; // Lấy đỉnh cục bộ đầu tiên thỏa mãn
+                }
+            }
+
+            // 3. Điểm căn chỉnh tham chiếu và tính toán độ dịch (shift)
+            const int REF_PEAK_IDX = 8;
+            int shift = peak_idx - REF_PEAK_IDX;
+
+            // Giới hạn dịch chuyển để tránh lỗi mảng
+            if (shift > 50) shift = 50;
+            if (shift < -50) shift = -50;
+
+            // 4. Căn chỉnh lại mảng tín hiệu và điền 0 vào phần trống để đảm bảo luôn đủ 2048 mẫu
+            if (shift > 0) {
+                // Dịch trái
+                for (size_t i = 0; i < Constant::ADC_SAMPLES - shift; ++i) {
+                    send_adc_buffer[i] = send_adc_buffer[i + shift];
+                }
+                for (size_t i = Constant::ADC_SAMPLES - shift; i < Constant::ADC_SAMPLES; ++i) {
+                    send_adc_buffer[i] = 0;
+                }
+            } else if (shift < 0) {
+                // Dịch phải
+                int rshift = -shift;
+                for (int i = (int)Constant::ADC_SAMPLES - 1; i >= rshift; --i) {
+                    send_adc_buffer[i] = send_adc_buffer[i - rshift];
+                }
+                for (int i = 0; i < rshift; ++i) {
+                    send_adc_buffer[i] = 0;
+                }
+            }
+
+            // In log mỗi chu kỳ để theo dõi trực quan và kiểm tra căn chỉnh liên tục
+            loopCount++;
+            if (loopCount % 50 == 0) {
+                Serial.printf("[LOG] Thu nhận %u mẫu trong %llu us. Tần số lấy mẫu thực tế: %.2f kHz\n",
+                              Constant::ADC_SAMPLES, elapsed_time, fs_actual / 1000.0);
+            }
+            Serial.printf("[ALIGN] Peak at: %d, Shift: %d (REF: %d, MaxVal: %d, Thresh: %d)\n", 
+                          peak_idx, shift, REF_PEAK_IDX, max_val, threshold);
 
             // Gửi dữ liệu qua giao thức UDP của ComManager đến SonarViewer dưới định dạng kênh Rx1 (receiverId = 1)
             com.sendFrame(frameId++, send_adc_buffer, Constant::ADC_SAMPLES, 1);
