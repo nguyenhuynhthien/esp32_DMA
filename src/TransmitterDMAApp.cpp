@@ -13,6 +13,10 @@ void TransmitterDMAApp::init() {
     memcpy(_barker13_pulse + 4, Constant::BARKER13_PULSE_WAVE, Constant::BARKER13_PULSE_LEN);
 }
 
-void IRAM_ATTR TransmitterDMAApp::transmit() {
-    _dacService.transmitPulse(_barker13_pulse, Constant::BARKER13_PULSE_LEN + 4);
+void IRAM_ATTR TransmitterDMAApp::transmit(ComManager::PulseType pulseType) {
+    if (pulseType == ComManager::PULSE_BARKER13) {
+        _dacService.transmitPulse(_barker13_pulse, Constant::BARKER13_PULSE_LEN + 4);
+    } else {
+        _dacService.transmitPulse(_single_pulse, Constant::FILTER_COEFFS_LEN + 4);
+    }
 }

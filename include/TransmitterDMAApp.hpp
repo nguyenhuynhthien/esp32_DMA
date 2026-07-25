@@ -4,11 +4,13 @@
 #include "DacDMAService.hpp"
 #include "Constant.hpp"
 
+#include "ComManager.h"
+
 class TransmitterDMAApp {
 public:
     TransmitterDMAApp(DacDMAService& dacService);
     void init();
-    void IRAM_ATTR transmit();
+    void IRAM_ATTR transmit(ComManager::PulseType pulseType);
 
 private:
     DacDMAService& _dacService;

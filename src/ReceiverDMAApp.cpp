@@ -7,8 +7,8 @@ void ReceiverDMAApp::init() {
     // Buffers or additional setup if needed
 }
 
-void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs) {
-    uint64_t start_time = esp_timer_get_time();
+void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs, uint64_t adcStartTime) {
+    uint64_t start_time = (adcStartTime != 0) ? adcStartTime : esp_timer_get_time();
     size_t bytes_read = 0;
 
     esp_err_t res = _adcService.readSamples(_raw_adc_buffer, sizeof(_raw_adc_buffer), bytes_read);

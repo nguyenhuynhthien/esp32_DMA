@@ -14,13 +14,14 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 
     // 2. Khởi động lại ADC DMA (chu kỳ mới)
     _adcService.start();
+    uint64_t adcStartTime = esp_timer_get_time();
 
     // 3. Vào vùng chặn ngắt để phát DAC đồng bộ ngay lập tức (không delay)
     portMUX_TYPE myMutex = SPINLOCK_INITIALIZER;
     portENTER_CRITICAL(&myMutex);
-    _transmitterApp.transmit();
+    _transmitterApp.transmit(com.getPulseType());
     portEXIT_CRITICAL(&myMutex);
 
     // 4. Nhận và xử lý dữ liệu từ ADC DMA
-    _receiverApp.receiveAndProcess(com, frameId, priMs);
+    _receiverApp.receiveAndProcess(com, frameId, priMs, adcStartTime);
 }
