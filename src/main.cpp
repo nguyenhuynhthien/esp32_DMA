@@ -106,11 +106,12 @@ void setup() {
     dac_output_enable(DAC_CHANNEL_1);
     dac_output_voltage(DAC_CHANNEL_1, 127); // Đặt bias ban đầu
 
-    // Khởi tạo ADC DMA qua I2S0
-    init_adc_i2s();
-
-    // Khởi tạo ComManager để kết nối WiFi & giao thức UDP
+    // 1. Khởi tạo ComManager để kết nối WiFi trước khi cấu hình ADC
     com.begin();
+
+    // 2. Khởi tạo ADC DMA qua I2S0 sau khi WiFi đã kết nối
+    // Sau khi cài đặt, driver I2S sẽ ở trạng thái đang chạy (Running) mặc định
+    init_adc_i2s();
 
     // Nâng ưu tiên của loopTask lên 20 (cao hơn WiFi/mạng) để triệt tiêu Jitter khi lập lịch
     vTaskPrioritySet(NULL, 20);
@@ -125,6 +126,8 @@ void loop() {
 
     if (com.isStreaming()) {
         // 1. Luôn dừng I2S trước để đưa về trạng thái tĩnh hoàn toàn
+        // (Do ở cuối loop và ở setup ta không tắt I2S nên chắc chắn Driver đang ở trạng thái Running, 
+        // đảm bảo lệnh stop này luôn hợp lệ và không lỗi trạng thái)
         i2s_adc_disable(I2S_NUM_0);
         i2s_stop(I2S_NUM_0);
 
@@ -132,17 +135,8 @@ void loop() {
         i2s_start(I2S_NUM_0);
         i2s_adc_enable(I2S_NUM_0);
 
-        // Chỉ cần chờ 1 ms để phần cứng ADC ổn định (giảm thời gian tạo mẫu thừa)
-        delay(1);
-
-        // Xả sạch toàn bộ mẫu nhiễu/rác trong bộ đệm DMA
-        size_t bytes_drained = 0;
-        uint16_t drain_buf[64];
-        do {
-            i2s_read(I2S_NUM_0, drain_buf, sizeof(drain_buf), &bytes_drained, 0);
-        } while (bytes_drained > 0);
-
-        // 3. Vào vùng chặn ngắt để phát DAC đồng bộ
+        // 3. Vào vùng chặn ngắt để phát DAC đồng bộ ngay lập tức (không delay, không drain)
+        // Điều này đảm bảo không có mẫu rác nào kịp ghi vào DMA, triệt tiêu trễ ngẫu nhiên
         portMUX_TYPE myMutex = SPINLOCK_INITIALIZER;
         portENTER_CRITICAL(&myMutex);
         fire_dac_pulse();
