@@ -192,7 +192,7 @@ void loop() {
       // Đồng bộ hóa phần mềm để loại bỏ jitter:
       // 1. Tìm giá trị dương lớn nhất trong cửa sổ rộng (bỏ qua mẫu 0, 1) để
       // làm mốc biên độ
-      int16_t max_val = 0;
+      volatile int16_t max_val = 0;
       for (int i = 2; i < 120; ++i) {
         int16_t val = send_adc_buffer[i];
         if (val > max_val) {
@@ -202,8 +202,8 @@ void loop() {
 
       // 2. Tìm đỉnh cục bộ dương ĐẦU TIÊN vượt quá 45% của max_val để tránh
       // hiện tượng nhảy chu kỳ (cycle jumping)
-      int peak_idx = 12; // Mặc định nếu không tìm thấy
-      int16_t threshold = (max_val * 45) / 100;
+      volatile int peak_idx = 12; // Mặc định nếu không tìm thấy
+      volatile int16_t threshold = (max_val * 45) / 100;
       for (int i = 2; i < 118; ++i) {
         int16_t val = send_adc_buffer[i];
         if (val >= threshold && val >= send_adc_buffer[i - 1] &&
@@ -217,7 +217,7 @@ void loop() {
       // Đặt REF_PEAK_IDX = 1 để dịch đỉnh về mẫu 1 (loại bỏ trễ và peak giả ở
       // mẫu 0)
       const int REF_PEAK_IDX = 1;
-      int shift = peak_idx - REF_PEAK_IDX;
+      volatile int shift = peak_idx - REF_PEAK_IDX;
 
       // Giới hạn dịch chuyển để tránh lỗi mảng
       if (shift > 50)
@@ -255,9 +255,6 @@ void loop() {
                       pri_ms, Constant::ADC_SAMPLES, fs_actual / 1000.0,
                       elapsed_time);
       }
-      Serial.printf(
-          "[ALIGN] Peak at: %d, Shift: %d (REF: %d, MaxVal: %d, Thresh: %d)\n",
-          peak_idx, shift, REF_PEAK_IDX, max_val, threshold);
       // Gửi dữ liệu qua giao thức UDP của ComManager đến SonarViewer dưới định
       // dạng kênh Rx1 (receiverId = 1)
       com.sendFrame(frameId++, send_adc_buffer, Constant::ADC_SAMPLES, 1);
