@@ -1,0 +1,200 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <ESPmDNS.h>
+#include <driver/i2s.h>
+#include <driver/adc.h>
+#include <driver/dac.h>
+#include <Constant.hpp>
+#include <ComManager.h>
+#include <soc/i2s_reg.h>
+#include <soc/i2s_struct.h>
+
+// Thông tin kết nối WiFi
+const char *ssid = "Noel";
+const char *password = "hongthanh2110";
+const char *hostName = "esp32";
+
+ComManager com(ssid, password, hostName);
+
+// Inline assembly để đọc bộ đếm chu kỳ CPU (ccount)
+static inline uint32_t get_ccount() {
+    uint32_t ccount;
+    asm volatile("rsr %0, ccount" : "=r"(ccount));
+    return ccount;
+}
+
+// Xung sin phát DAC (Tổng cộng 12 mẫu)
+// Chèn 4 mẫu bias 127 vào đầu để hấp thụ trễ khởi động của ADC RX (khoảng 25 us)
+// Sau đó là 2 chu kỳ sin hoàn chỉnh (8 mẫu) có biên độ giảm để tránh bão hòa ADC
+const uint8_t sine_pulse[12] = {127, 127, 127, 127, 127, 190, 127, 64, 127, 190, 127, 64};
+
+// Buffer chứa dữ liệu đọc từ DMA (I2S0)
+uint16_t raw_adc_buffer[Constant::ADC_SAMPLES];
+int16_t send_adc_buffer[Constant::ADC_SAMPLES];
+
+void init_adc_i2s() {
+    // Cấu hình độ phân giải và độ suy hao cho ADC1 Channel 4 (GPIO 32)
+    adc1_config_width(ADC_WIDTH_BIT_12);
+    adc1_config_channel_atten(ADC1_CHANNEL_4, ADC_ATTEN_DB_12);
+
+    // Cấu hình Driver I2S0 cho chế độ ADC DMA với kích thước buffer nhỏ (64 mẫu)
+    // để triệt tiêu độ trễ hàng đợi
+    i2s_config_t i2s_config = {
+        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX | I2S_MODE_ADC_BUILT_IN),
+        .sample_rate = 160000, // fs = 160 kHz
+        .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+        .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT,
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0)
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+#else
+        .communication_format = I2S_COMM_FORMAT_I2S_MSB,
+#endif
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+        .dma_buf_count = 8,  // Tăng số lượng buffer
+        .dma_buf_len = 64,   // Giảm kích thước mỗi buffer để giảm trễ
+        .use_apll = false,
+        .tx_desc_auto_clear = false,
+        .fixed_mclk = 0
+    };
+
+    // Khởi tạo Driver I2S
+    esp_err_t err = i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
+    if (err != ESP_OK) {
+        Serial.printf("Lỗi cài đặt driver I2S: %d\n", err);
+    }
+
+    // Gán kênh ADC1 vào I2S
+    err = i2s_set_adc_mode(ADC_UNIT_1, ADC1_CHANNEL_4);
+    if (err != ESP_OK) {
+        Serial.printf("Lỗi cấu hình kênh ADC cho I2S: %d\n", err);
+    }
+
+    // Bật ADC trên I2S
+    err = i2s_adc_enable(I2S_NUM_0);
+    if (err != ESP_OK) {
+        Serial.printf("Lỗi kích hoạt I2S ADC: %d\n", err);
+    }
+    
+    Serial.println("Cấu hình ADC I2S DMA hoàn tất.");
+}
+
+void fire_dac_pulse() {
+    // Phát xung sin qua DAC1 (GPIO 25)
+    uint32_t start_cycles = get_ccount();
+    uint32_t cpu_freq_mhz = ESP.getCpuFreqMHz();
+    // Tần số fs = 160 kHz tương ứng 6.25 us hoặc (cpu_freq_mhz * 6.25) chu kỳ CPU
+    uint32_t cycles_per_sample = (uint32_t)(cpu_freq_mhz * 6.25f);
+
+    for (int i = 0; i < 12; ++i) {
+        dac_output_voltage(DAC_CHANNEL_1, sine_pulse[i]);
+        // Chờ chính xác thời gian mẫu tiếp theo bằng ccount
+        while ((int32_t)(get_ccount() - (start_cycles + (i + 1) * cycles_per_sample)) < 0) {
+            // Chờ spin-wait
+        }
+    }
+    // Trả về mức bias sau khi phát xung xong
+    dac_output_voltage(DAC_CHANNEL_1, 127);
+}
+
+void setup() {
+    Serial.begin(115200);
+    delay(1000);
+    Serial.println("Khởi động hệ thống test_DMA...");
+
+    // Cấu hình chân DAC
+    dac_output_enable(DAC_CHANNEL_1);
+    dac_output_voltage(DAC_CHANNEL_1, 127); // Đặt bias ban đầu
+
+    // Khởi tạo ADC DMA qua I2S0
+    init_adc_i2s();
+
+    // Khởi tạo ComManager để kết nối WiFi & giao thức UDP
+    com.begin();
+
+    // Nâng ưu tiên của loopTask lên 20 (cao hơn WiFi/mạng) để triệt tiêu Jitter khi lập lịch
+    vTaskPrioritySet(NULL, 20);
+}
+
+uint16_t frameId = 0;
+uint32_t loopCount = 0;
+
+void loop() {
+    // Xử lý các gói tin UDP và cập nhật trạng thái kết nối
+    com.update();
+
+    if (com.isStreaming()) {
+        // 1. Luôn dừng I2S trước để đưa về trạng thái tĩnh hoàn toàn
+        i2s_adc_disable(I2S_NUM_0);
+        i2s_stop(I2S_NUM_0);
+
+        // 2. Khởi động lại I2S và bật ADC (chu kỳ mới)
+        i2s_start(I2S_NUM_0);
+        i2s_adc_enable(I2S_NUM_0);
+
+        // Chỉ cần chờ 1 ms để phần cứng ADC ổn định (giảm thời gian tạo mẫu thừa)
+        delay(1);
+
+        // Xả sạch toàn bộ mẫu nhiễu/rác trong bộ đệm DMA
+        size_t bytes_drained = 0;
+        uint16_t drain_buf[64];
+        do {
+            i2s_read(I2S_NUM_0, drain_buf, sizeof(drain_buf), &bytes_drained, 0);
+        } while (bytes_drained > 0);
+
+        // 3. Vào vùng chặn ngắt để phát DAC đồng bộ
+        portMUX_TYPE myMutex = SPINLOCK_INITIALIZER;
+        portENTER_CRITICAL(&myMutex);
+        fire_dac_pulse();
+        portEXIT_CRITICAL(&myMutex);
+
+        // Đo thời gian bắt đầu đọc dữ liệu DMA
+        uint64_t start_time = esp_timer_get_time();
+        size_t bytes_read = 0;
+
+        // Đọc 2048 mẫu (4096 bytes) từ I2S DMA
+        esp_err_t res = i2s_read(I2S_NUM_0, raw_adc_buffer, sizeof(raw_adc_buffer), &bytes_read, portMAX_DELAY);
+        uint64_t elapsed_time = esp_timer_get_time() - start_time;
+
+        if (res == ESP_OK && bytes_read == sizeof(raw_adc_buffer)) {
+            // Tính toán tần số lấy mẫu thực tế dựa trên thời gian thực tế thu nhận
+            double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
+
+            // In log chu kỳ và tần số thực tế theo định kỳ (mỗi 50 chu kỳ) để giám sát
+            loopCount++;
+            if (loopCount % 50 == 0) {
+                Serial.printf("[LOG] Thu nhận %u mẫu trong %llu us. Tần số lấy mẫu thực tế: %.2f kHz (Chu kỳ lấy mẫu thực tế: %.4f us)\n",
+                              Constant::ADC_SAMPLES,
+                              elapsed_time,
+                              fs_actual / 1000.0,
+                              (double)elapsed_time / Constant::ADC_SAMPLES);
+            }
+
+            // Tính giá trị trung bình (DC bias) của buffer thô
+            int32_t sum = 0;
+            for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
+                // Mask lấy 12-bit từ dữ liệu đọc được từ I2S
+                raw_adc_buffer[i] &= 0x0FFF;
+                sum += raw_adc_buffer[i];
+            }
+            int16_t mean = sum / Constant::ADC_SAMPLES;
+
+            // Loại bỏ DC offset và chuẩn hóa biên độ về dải Q15 (signed 16-bit)
+            for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
+                int32_t centered = ((int32_t)raw_adc_buffer[i] - mean) << 4;
+                send_adc_buffer[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
+            }
+
+            // Gửi dữ liệu qua giao thức UDP của ComManager đến SonarViewer dưới định dạng kênh Rx1 (receiverId = 1)
+            com.sendFrame(frameId++, send_adc_buffer, Constant::ADC_SAMPLES, 1);
+        } else {
+            Serial.printf("Lỗi đọc I2S: %d, số bytes đọc được: %u\n", res, bytes_read);
+        }
+
+        // Tốc độ lặp (PRI) khoảng 30 ms
+        delay(30);
+    } else {
+        // Chờ kết nối
+        delay(100);
+    }
+}
