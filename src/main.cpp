@@ -263,8 +263,8 @@ void loop() {
                     bytes_read);
     }
 
-    // Tốc độ lặp (PRI) khoảng 30 ms
-    delay(30);
+    // Trễ chủ động
+    delay(0);
   } else {
     // Chờ kết nối
     delay(100);
