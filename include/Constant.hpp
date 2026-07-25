@@ -19,11 +19,17 @@ constexpr double SAMPLE_RATE = CENTER_FREQ * DEMOD_SAMPLE_PERIOD;
 // Maximum value of the 12-bit ADC resolution (Value: 4095)
 constexpr uint16_t ADC_RESOLUTION_MAX = 4095;
 
+// Number of bits for the ADC (Value: 12)
+constexpr int ADC_BITS = 12;
+
 // DC offset of the ADC, derived as the midpoint of the ADC range (Value: 2048.0f)
 constexpr float ADC_DC_OFFSET = static_cast<float>(ADC_RESOLUTION_MAX + 1) / 2.0f;
 
 // DC bias offset for the 8-bit DAC output (Value: 127)
 constexpr uint8_t DAC_DC_BIAS = 127;
+
+// Length of the sine pulse signal generated (Value: 12)
+constexpr size_t DAC_PULSE_LEN = 12;
 
 // ADC channel corresponding to Receiver 1 (GPIO 32, Value: 4)
 constexpr int ADC_CHANNEL_RX1 = 4;
@@ -40,6 +46,9 @@ constexpr size_t CHUNKS_PER_FRAME = 4;
 
 // Total number of ADC samples collected per frame, derived from chunk settings (Value: 2048)
 constexpr size_t ADC_SAMPLES = CHUNK_SAMPLES * CHUNKS_PER_FRAME;
+
+// Shift factor to compute division by ADC_SAMPLES using bit-shifting (Value: 11)
+constexpr int ADC_SAMPLES_SHIFT = 11;
 
 // Length of each DMA buffer, matching the size of a single sample chunk (Value: 512)
 constexpr size_t DMA_BUF_LEN = CHUNK_SAMPLES;
@@ -81,6 +90,25 @@ constexpr int16_t Q15_MAX = (1 << Q15_SHIFT) - 1;
 
 // Minimum value of a signed 16-bit Q15 fixed-point number (Value: -32768)
 constexpr int16_t Q15_MIN = -(1 << Q15_SHIFT);
+
+// Shift amount to scale centered 12-bit ADC values to Q15 range (Value: 4)
+constexpr int Q15_SCALE_SHIFT = Q15_SHIFT - (ADC_BITS - 1);
+
+// --- Software Synchronization & Jitter Correction ---
+// Window size in samples for locating synchronization peak (Value: 120)
+constexpr int JITTER_WINDOW_LEN = 120;
+
+// Percentage threshold relative to absolute max peak to identify primary peak (Value: 45)
+constexpr int16_t PEAK_THRESHOLD_PERCENT = 45;
+
+// Default peak index to return when peak detection fails (Value: DAC_PULSE_LEN, which is 12)
+constexpr int DEFAULT_PEAK_IDX = DAC_PULSE_LEN;
+
+// Reference peak index to align signal to (Value: 1)
+constexpr int REF_PEAK_IDX = 1;
+
+// Maximum allowed index shift for jitter correction (Value: 50)
+constexpr int MAX_ALLOWED_SHIFT = 50;
 
 // Pre-calculated value of cos(pi/4) scaled in Q15 format, approximately 0.7071 (Value: 23170)
 constexpr int32_t COS_PI_4_Q15 = static_cast<int32_t>(0.7071067811865476 * (1 << Q15_SHIFT));

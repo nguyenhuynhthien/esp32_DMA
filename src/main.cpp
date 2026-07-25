@@ -86,9 +86,9 @@ void fire_dac_pulse() {
   uint32_t start_cycles = get_ccount();
   uint32_t cpu_freq_mhz = ESP.getCpuFreqMHz();
   // Tần số fs = 160 kHz tương ứng 6.25 us hoặc (cpu_freq_mhz * 6.25) chu kỳ CPU
-  uint32_t cycles_per_sample = (uint32_t)(cpu_freq_mhz * 6.25f);
+  uint32_t cycles_per_sample = (uint32_t)(cpu_freq_mhz * Constant::CPU_CYCLES_PER_SAMPLE_FACTOR);
 
-  for (int i = 0; i < 12; ++i) {
+  for (size_t i = 0; i < Constant::DAC_PULSE_LEN; ++i) {
     dac_output_voltage(DAC_CHANNEL_1, sine_pulse[i]);
     // Chờ chính xác thời gian mẫu tiếp theo bằng ccount
     while ((int32_t)(get_ccount() -
@@ -97,7 +97,7 @@ void fire_dac_pulse() {
     }
   }
   // Trả về mức bias sau khi phát xung xong
-  dac_output_voltage(DAC_CHANNEL_1, 127);
+  dac_output_voltage(DAC_CHANNEL_1, Constant::DAC_DC_BIAS);
 }
 
 void setup() {
@@ -107,7 +107,7 @@ void setup() {
 
   // Cấu hình chân DAC
   dac_output_enable(DAC_CHANNEL_1);
-  dac_output_voltage(DAC_CHANNEL_1, 127); // Đặt bias ban đầu
+  dac_output_voltage(DAC_CHANNEL_1, Constant::DAC_DC_BIAS); // Đặt bias ban đầu
 
   // 1. Khởi tạo ComManager để kết nối WiFi trước khi cấu hình ADC
   com.begin();
@@ -177,15 +177,15 @@ void loop() {
       int32_t sum = 0;
       for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
         // Mask lấy 12-bit từ dữ liệu đọc được từ I2S
-        raw_adc_buffer[i] &= 0x0FFF;
+        raw_adc_buffer[i] &= Constant::ADC_RESOLUTION_MAX;
         sum += raw_adc_buffer[i];
       }
       // Tối ưu hóa phép chia cho 2048 bằng phép dịch bit phải 11
-      int16_t mean = sum >> 11;
+      int16_t mean = sum >> Constant::ADC_SAMPLES_SHIFT;
 
-      // Chỉ cần chuẩn hóa 120 mẫu đầu tiên để tìm đỉnh cục bộ phục vụ căn chỉnh
-      for (int i = 0; i < 120; ++i) {
-        int32_t centered = ((int32_t)raw_adc_buffer[i] - mean) << 4;
+      // Chỉ cần chuẩn hóa cửa sổ đầu tiên để tìm đỉnh cục bộ phục vụ căn chỉnh
+      for (int i = 0; i < Constant::JITTER_WINDOW_LEN; ++i) {
+        int32_t centered = ((int32_t)raw_adc_buffer[i] - mean) << Constant::Q15_SCALE_SHIFT;
         send_adc_buffer[i] =
             (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
       }
@@ -194,7 +194,7 @@ void loop() {
       // 1. Tìm giá trị dương lớn nhất trong cửa sổ rộng (bỏ qua mẫu 0, 1) để
       // làm mốc biên độ
       volatile int16_t max_val = 0;
-      for (int i = 2; i < 120; ++i) {
+      for (int i = 2; i < Constant::JITTER_WINDOW_LEN; ++i) {
         int16_t val = send_adc_buffer[i];
         if (val > max_val) {
           max_val = val;
@@ -203,9 +203,9 @@ void loop() {
 
       // 2. Tìm đỉnh cục bộ dương ĐẦU TIÊN vượt quá 45% của max_val để tránh
       // hiện tượng nhảy chu kỳ (cycle jumping)
-      volatile int peak_idx = 12; // Mặc định nếu không tìm thấy
-      volatile int16_t threshold = (max_val * 45) / 100;
-      for (int i = 2; i < 118; ++i) {
+      volatile int peak_idx = Constant::DEFAULT_PEAK_IDX; // Mặc định nếu không tìm thấy
+      volatile int16_t threshold = (max_val * Constant::PEAK_THRESHOLD_PERCENT) / 100;
+      for (int i = 2; i < Constant::JITTER_WINDOW_LEN - 2; ++i) {
         int16_t val = send_adc_buffer[i];
         if (val >= threshold && val >= send_adc_buffer[i - 1] &&
             val >= send_adc_buffer[i + 1]) {
@@ -215,23 +215,22 @@ void loop() {
       }
 
       // 3. Điểm căn chỉnh tham chiếu và tính toán độ dịch (shift)
-      // Đặt REF_PEAK_IDX = 1 để dịch đỉnh về mẫu 1 (loại bỏ trễ và peak giả ở
-      // mẫu 0)
-      const int REF_PEAK_IDX = 1;
+      // Đặt REF_PEAK_IDX để dịch đỉnh về mẫu tham chiếu (loại bỏ trễ và peak giả ở mẫu 0)
+      const int REF_PEAK_IDX = Constant::REF_PEAK_IDX;
       volatile int shift = peak_idx - REF_PEAK_IDX;
 
       // Giới hạn dịch chuyển để tránh lỗi mảng
-      if (shift > 50)
-        shift = 50;
-      if (shift < -50)
-        shift = -50;
+      if (shift > Constant::MAX_ALLOWED_SHIFT)
+        shift = Constant::MAX_ALLOWED_SHIFT;
+      if (shift < -Constant::MAX_ALLOWED_SHIFT)
+        shift = -Constant::MAX_ALLOWED_SHIFT;
 
       // 4. Căn chỉnh lại mảng tín hiệu và điền 0 vào phần trống để đảm bảo luôn
       // đủ 2048 mẫu. Tối ưu: thực hiện dịch và chuẩn hóa cùng lúc trong một vòng lặp
       if (shift > 0) {
         // Dịch trái: send_adc_buffer[i] = send_adc_buffer_chưa_dịch[i + shift]
         for (size_t i = 0; i < Constant::ADC_SAMPLES - shift; ++i) {
-          int32_t centered = ((int32_t)raw_adc_buffer[i + shift] - mean) << 4;
+          int32_t centered = ((int32_t)raw_adc_buffer[i + shift] - mean) << Constant::Q15_SCALE_SHIFT;
           send_adc_buffer[i] =
               (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
         }
@@ -241,7 +240,7 @@ void loop() {
         // Dịch phải (shift <= 0): send_adc_buffer[i] = send_adc_buffer_chưa_dịch[i + shift]
         int rshift = -shift;
         for (int i = (int)Constant::ADC_SAMPLES - 1; i >= rshift; --i) {
-          int32_t centered = ((int32_t)raw_adc_buffer[i - rshift] - mean) << 4;
+          int32_t centered = ((int32_t)raw_adc_buffer[i - rshift] - mean) << Constant::Q15_SCALE_SHIFT;
           send_adc_buffer[i] =
               (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
         }
