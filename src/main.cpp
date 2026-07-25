@@ -180,10 +180,11 @@ void loop() {
         raw_adc_buffer[i] &= 0x0FFF;
         sum += raw_adc_buffer[i];
       }
-      int16_t mean = sum / Constant::ADC_SAMPLES;
+      // Tối ưu hóa phép chia cho 2048 bằng phép dịch bit phải 11
+      int16_t mean = sum >> 11;
 
-      // Loại bỏ DC offset và chuẩn hóa biên độ về dải Q15 (signed 16-bit)
-      for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
+      // Chỉ cần chuẩn hóa 120 mẫu đầu tiên để tìm đỉnh cục bộ phục vụ căn chỉnh
+      for (int i = 0; i < 120; ++i) {
         int32_t centered = ((int32_t)raw_adc_buffer[i] - mean) << 4;
         send_adc_buffer[i] =
             (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
@@ -226,25 +227,26 @@ void loop() {
         shift = -50;
 
       // 4. Căn chỉnh lại mảng tín hiệu và điền 0 vào phần trống để đảm bảo luôn
-      // đủ 2048 mẫu
+      // đủ 2048 mẫu. Tối ưu: thực hiện dịch và chuẩn hóa cùng lúc trong một vòng lặp
       if (shift > 0) {
-        // Dịch trái
+        // Dịch trái: send_adc_buffer[i] = send_adc_buffer_chưa_dịch[i + shift]
         for (size_t i = 0; i < Constant::ADC_SAMPLES - shift; ++i) {
-          send_adc_buffer[i] = send_adc_buffer[i + shift];
+          int32_t centered = ((int32_t)raw_adc_buffer[i + shift] - mean) << 4;
+          send_adc_buffer[i] =
+              (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
         }
-        for (size_t i = Constant::ADC_SAMPLES - shift;
-             i < Constant::ADC_SAMPLES; ++i) {
-          send_adc_buffer[i] = 0;
-        }
-      } else if (shift < 0) {
-        // Dịch phải
+        // Xóa nhanh vùng cuối mảng bằng memset
+        memset(&send_adc_buffer[Constant::ADC_SAMPLES - shift], 0, shift * sizeof(int16_t));
+      } else {
+        // Dịch phải (shift <= 0): send_adc_buffer[i] = send_adc_buffer_chưa_dịch[i + shift]
         int rshift = -shift;
         for (int i = (int)Constant::ADC_SAMPLES - 1; i >= rshift; --i) {
-          send_adc_buffer[i] = send_adc_buffer[i - rshift];
+          int32_t centered = ((int32_t)raw_adc_buffer[i - rshift] - mean) << 4;
+          send_adc_buffer[i] =
+              (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
         }
-        for (int i = 0; i < rshift; ++i) {
-          send_adc_buffer[i] = 0;
-        }
+        // Xóa nhanh vùng đầu mảng bằng memset
+        memset(send_adc_buffer, 0, rshift * sizeof(int16_t));
       }
 
       // In log mỗi chu kỳ để theo dõi trực quan và kiểm tra căn chỉnh liên tục
