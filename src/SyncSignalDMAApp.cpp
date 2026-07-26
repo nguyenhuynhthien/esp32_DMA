@@ -22,6 +22,11 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
     _transmitterApp.transmit(com.getPulseType());
     portEXIT_CRITICAL(&myMutex);
 
+#ifdef SHOW_SAMPLING_LOG
+    // In log đo chu kỳ phát DAC ngoài vùng critical section để tránh crash CPU
+    _transmitterApp.printDacMetrics();
+#endif
+
     // 4. Nhận và xử lý dữ liệu từ ADC DMA cho cả 2 kênh
     static uint16_t raw_interleaved_buffer[Constant::ADC_SAMPLES * 4];
     static uint16_t rx1_buffer[Constant::ADC_SAMPLES];
@@ -36,7 +41,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
         size_t rx2_count = 0;
         uint8_t last_chan = 0xFF; // Để theo dõi trạng thái chuyển kênh không phụ thuộc phase
 
-        for (size_t i = 0; i < Constant::ADC_SAMPLES * 4; ++i) {
+        for (size_t i = 4; i < Constant::ADC_SAMPLES * 4; ++i) {
             uint16_t raw_val = raw_interleaved_buffer[i];
             uint8_t chan = (raw_val >> 12) & 0xF;
             if (chan == Constant::ADC_CHANNEL_RX1 || chan == Constant::ADC_CHANNEL_RX2) {
@@ -65,6 +70,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
             rx2_buffer[rx2_count++] = pad_val2;
         }
 
+#ifdef SHOW_SAMPLING_LOG
         // Debug first 20 samples channel IDs
         static int debug_cnt = 0;
         if (debug_cnt++ % 50 == 0) {
@@ -74,6 +80,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
             }
             Serial.printf("\n[DEBUG] RX1 count (unique): %u, RX2 count (unique): %u\n", rx1_count, rx2_count);
         }
+#endif
 
         // Xử lý dữ liệu độc lập cho từng Receiver với cùng một frameId
         _receiverApp1.process(rx1_buffer, com, frameId, priMs, elapsed_time);

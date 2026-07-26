@@ -1,8 +1,13 @@
 #include "ReceiverDMAApp.hpp"
 #include <Arduino.h>
 
+#ifdef SHOW_SAMPLING_LOG
+ReceiverDMAApp::ReceiverDMAApp(AdcDMAService& adcService, uint8_t receiverId)
+    : _adcService(adcService), _receiverId(receiverId), _loopCount(0) {}
+#else
 ReceiverDMAApp::ReceiverDMAApp(AdcDMAService& adcService, uint8_t receiverId)
     : _adcService(adcService), _receiverId(receiverId) {}
+#endif
 
 void ReceiverDMAApp::init() {
     // Buffers or additional setup if needed
@@ -26,8 +31,10 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
     // Sao chép buffer thô vào bộ nhớ cục bộ
     memcpy(_raw_adc_buffer, rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
 
+#ifdef SHOW_SAMPLING_LOG
     // Tính toán tần số lấy mẫu thực tế dựa trên thời gian thực tế thu nhận
     double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
+#endif
 
     // Tính giá trị trung bình (DC bias) của buffer thô
     int32_t sum = 0;
@@ -96,12 +103,13 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
         memset(_send_adc_buffer, 0, rshift * sizeof(int16_t));
     }
 
-    static uint32_t loopCount = 0;
-    loopCount++;
-    if (loopCount % Constant::LOG_INTERVAL_FRAMES == 0) {
+#ifdef SHOW_SAMPLING_LOG
+    _loopCount++;
+    if (_loopCount % Constant::LOG_INTERVAL_FRAMES == 0) {
         Serial.printf("[LOG RX%d] PRI: %.2f ms | Số mẫu: %u | Tần số lấy mẫu thực tế: %.2f kHz (Đọc trong %llu us)\n",
                       _receiverId, priMs, Constant::ADC_SAMPLES, fs_actual / 1000.0, elapsed_time);
     }
+#endif
 
     // Gửi dữ liệu qua giao thức UDP của ComManager đến SonarViewer dưới định dạng kênh tương ứng
     com.sendFrame(frameId, _send_adc_buffer, Constant::ADC_SAMPLES, _receiverId);

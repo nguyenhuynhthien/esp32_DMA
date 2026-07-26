@@ -1,7 +1,11 @@
 #include "TransmitterDMAApp.hpp"
 #include "Constant.hpp"
 
+#ifdef SHOW_SAMPLING_LOG
+TransmitterDMAApp::TransmitterDMAApp(DacDMAService& dacService) : _dacService(dacService), _loopCount(0) {}
+#else
 TransmitterDMAApp::TransmitterDMAApp(DacDMAService& dacService) : _dacService(dacService) {}
+#endif
 
 void TransmitterDMAApp::init() {
     // Tự động thêm bias ở đầu và copy SINGLE_PULSE_WAVE vào buffer
@@ -20,3 +24,18 @@ void IRAM_ATTR TransmitterDMAApp::transmit(ComManager::PulseType pulseType) {
         _dacService.transmitPulse(_single_pulse, Constant::FILTER_COEFFS_LEN + Constant::DAC_PRE_BIAS_SAMPLES);
     }
 }
+
+#ifdef SHOW_SAMPLING_LOG
+void TransmitterDMAApp::printDacMetrics() {
+    _loopCount++;
+    if (_loopCount % Constant::LOG_INTERVAL_FRAMES == 0) {
+        uint64_t elapsed_cycles = _dacService.getLastTransmitCycles();
+        size_t length = _dacService.getLastTransmitLength();
+        uint32_t cpu_freq_mhz = ESP.getCpuFreqMHz();
+        double elapsed_time = (double)elapsed_cycles / (double)cpu_freq_mhz;
+        double fs_dac = (double)length * 1000000.0 / elapsed_time;
+        Serial.printf("[LOG DAC] PRI: %.2f ms | Số mẫu: %u | Tần số phát thực tế: %.2f kHz (Phát trong %.2f us)\n",
+                      elapsed_time / 1000.0, length, fs_dac / 1000.0, elapsed_time);
+    }
+}
+#endif

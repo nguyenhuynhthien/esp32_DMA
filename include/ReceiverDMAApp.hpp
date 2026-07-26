@@ -15,6 +15,9 @@ public:
 private:
     AdcDMAService& _adcService;
     uint8_t _receiverId;
+#ifdef SHOW_SAMPLING_LOG
+    uint32_t _loopCount;
+#endif
     uint16_t _raw_adc_buffer[Constant::ADC_SAMPLES];
     int16_t _send_adc_buffer[Constant::ADC_SAMPLES];
 };

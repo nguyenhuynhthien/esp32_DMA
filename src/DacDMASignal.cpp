@@ -1,7 +1,11 @@
 #include "DacDMASignal.hpp"
 #include "Constant.hpp"
 
+#ifdef SHOW_SAMPLING_LOG
+DacDMASignal::DacDMASignal() : _lastTransmitCycles(0), _lastTransmitLength(0) {}
+#else
 DacDMASignal::DacDMASignal() {}
+#endif
 
 void DacDMASignal::init() {
     dac_output_enable(DAC_CHANNEL_1);
@@ -23,6 +27,13 @@ void IRAM_ATTR DacDMASignal::firePulse(const uint8_t* pulse, size_t length) {
             // Spin-wait
         }
     }
+#ifdef SHOW_SAMPLING_LOG
+    _lastTransmitCycles = get_ccount() - start_cycles;
+#endif
+
     // Return to bias after firing
     dac_output_voltage(DAC_CHANNEL_1, Constant::DAC_DC_BIAS);
+#ifdef SHOW_SAMPLING_LOG
+    _lastTransmitLength = length;
+#endif
 }
