@@ -30,8 +30,9 @@ DacDMAService dacService(dacSignal);
 
 // Khởi tạo các App
 TransmitterDMAApp transmitterApp(dacService);
-ReceiverDMAApp receiverApp(adcService);
-SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp);
+ReceiverDMAApp receiverApp1(adcService, Constant::RECEIVER_ID_RX1);
+ReceiverDMAApp receiverApp2(adcService, Constant::RECEIVER_ID_RX2);
+SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp1, receiverApp2);
 
 void setup() {
   Serial.begin(Constant::SERIAL_BAUD_RATE);
@@ -49,7 +50,8 @@ void setup() {
 
   // 4. Khởi tạo các ứng dụng
   transmitterApp.init();
-  receiverApp.init();
+  receiverApp1.init();
+  receiverApp2.init();
   syncApp.init();
 
   // Nâng ưu tiên của loopTask lên MAIN_TASK_PRIORITY (cao hơn WiFi/mạng) để triệt tiêu Jitter khi lập lịch

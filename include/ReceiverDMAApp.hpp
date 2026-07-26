@@ -7,12 +7,14 @@
 
 class ReceiverDMAApp {
 public:
-    ReceiverDMAApp(AdcDMAService& adcService);
+    ReceiverDMAApp(AdcDMAService& adcService, uint8_t receiverId);
     void init();
-    void receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs, uint64_t adcStartTime = 0);
+    void receiveAndProcess(ComManager& com, uint16_t frameId, double priMs, uint64_t adcStartTime = 0);
+    void process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time);
 
 private:
     AdcDMAService& _adcService;
+    uint8_t _receiverId;
     uint16_t _raw_adc_buffer[Constant::ADC_SAMPLES];
     int16_t _send_adc_buffer[Constant::ADC_SAMPLES];
 };

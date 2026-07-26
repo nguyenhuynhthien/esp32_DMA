@@ -262,6 +262,9 @@ constexpr uint32_t LOG_INTERVAL_FRAMES = 50;
 // Receiver channel identifier for Rx1 (Value: 1)
 constexpr uint8_t RECEIVER_ID_RX1 = 1;
 
+// Receiver channel identifier for Rx2 (Value: 2)
+constexpr uint8_t RECEIVER_ID_RX2 = 2;
+
 // --- System priority and delay ---
 // Main task scheduling priority (Value: 20)
 constexpr uint32_t MAIN_TASK_PRIORITY = 20;
