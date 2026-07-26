@@ -3,10 +3,17 @@
 
 #include <Arduino.h>
 
+// Define to enable ADC/DAC PRI and Fs measurement logging
 #define SHOW_SAMPLING_LOG
 #define SHOW_COMM_LOG
 
+// Define to enable simulation mode (injects echo signal)
+#define SIMULATION_MODE
+
 namespace Constant {
+// Delay in samples for simulated echo signal (Value: 1000)
+constexpr size_t SIMULATOR_DELAY_SAMPLES = 1000;
+
 // --- Base Sonar & DSP Parameters ---
 // Center frequency of the transducer in Hz (Value: 40000.0)
 constexpr double CENTER_FREQ = 40000.0;
@@ -110,6 +117,9 @@ constexpr int Q15_SCALE_SHIFT = Q15_SHIFT - (ADC_BITS - 1);
 // --- Software Synchronization & Jitter Correction ---
 // Window size in samples for locating synchronization peak (Value: 120)
 constexpr int JITTER_WINDOW_LEN = 120;
+
+// Maximum index to search for synchronization peaks to prevent cycle jumping (Value: 30)
+constexpr int SYNC_SEARCH_LIMIT = 30;
 
 // Percentage threshold relative to absolute max peak to identify primary peak
 // (Value: 45)

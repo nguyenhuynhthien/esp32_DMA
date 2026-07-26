@@ -18,7 +18,7 @@ int16_t ReceiverDMAApp::calculateDcBias() {
 }
 
 void ReceiverDMAApp::processRawBuffer(int16_t mean) {
-    for (int i = 0; i < Constant::JITTER_WINDOW_LEN; ++i) {
+    for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
         int32_t centered = ((int32_t)_raw_adc_buffer[i] - mean) << Constant::Q15_SCALE_SHIFT;
         _send_adc_buffer[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
     }
@@ -133,7 +133,7 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
     }
 }
 
-void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, double txPriMs, double txFsKhz, uint64_t elapsed_time) {
+void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, double txPriMs, double txFsKhz, uint64_t elapsed_time, SimulatorDMAApp* simulatorApp) {
     // Sao chép buffer thô vào bộ nhớ cục bộ
     memcpy(_raw_adc_buffer, rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
 
@@ -165,6 +165,13 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
 
     volatile int shift = peak_idx - 1;
     shiftSignal(shift);
+
+#ifdef SIMULATION_MODE
+    // Tiêm xung giả lập vào mảng dữ liệu đã đồng bộ
+    if (simulatorApp != nullptr) {
+        simulatorApp->injectSimulationQ15(_send_adc_buffer, Constant::ADC_SAMPLES, com.getPulseType(), frameId, priMs);
+    }
+#endif
 
 #ifdef SHOW_SAMPLING_LOG
     _loopCount++;

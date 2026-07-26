@@ -1,8 +1,8 @@
 #include "SyncSignalDMAApp.hpp"
 #include <Arduino.h>
 
-SyncSignalDMAApp::SyncSignalDMAApp(AdcDMAService& adcService, TransmitterDMAApp& transmitterApp, ReceiverDMAApp& receiverApp1, ReceiverDMAApp& receiverApp2)
-    : _adcService(adcService), _transmitterApp(transmitterApp), _receiverApp1(receiverApp1), _receiverApp2(receiverApp2) {}
+SyncSignalDMAApp::SyncSignalDMAApp(AdcDMAService& adcService, TransmitterDMAApp& transmitterApp, ReceiverDMAApp& receiverApp1, ReceiverDMAApp& receiverApp2, SimulatorDMAApp& simulatorApp)
+    : _adcService(adcService), _transmitterApp(transmitterApp), _receiverApp1(receiverApp1), _receiverApp2(receiverApp2), _simulatorApp(simulatorApp) {}
 
 void SyncSignalDMAApp::init() {
     // Services and Apps are initialized externally or coordinated
@@ -20,6 +20,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 
     // 2. Khởi động lại ADC DMA (chu kỳ mới, SyncTask sở hữu Mutex từ đây)
     _adcService.start();
+
 #ifdef SHOW_SAMPLING_LOG
     uint64_t adc_start_time = esp_timer_get_time();
 #else
@@ -115,8 +116,8 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
         }
 
         // Xử lý dữ liệu độc lập cho từng Receiver với cùng một frameId
-        _receiverApp1.process(rx1_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time);
-        _receiverApp2.process(rx2_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time);
+        _receiverApp1.process(rx1_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time, &_simulatorApp);
+        _receiverApp2.process(rx2_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time, &_simulatorApp);
 
         // Tăng frameId cho chu kỳ phát xung tiếp theo
         frameId++;
