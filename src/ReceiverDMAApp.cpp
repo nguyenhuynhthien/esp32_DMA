@@ -1,7 +1,8 @@
 #include "ReceiverDMAApp.hpp"
 #include <Arduino.h>
 
-ReceiverDMAApp::ReceiverDMAApp(AdcDMAService& adcService) : _adcService(adcService) {}
+ReceiverDMAApp::ReceiverDMAApp(AdcDMAService& adcService, uint8_t receiverId)
+    : _adcService(adcService), _receiverId(receiverId) {}
 
 void ReceiverDMAApp::init() {
     // Buffers or additional setup if needed
@@ -115,20 +116,74 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
         loopCount++;
         if (loopCount % 50 == 0) {
 #ifdef SHOW_SAMPLING_LOG
-            Serial.printf("[LOG] Tx PRI: %.2f ms | Tx Fs: %.2f kHz | Rx PRI: %.2f ms | Rx Fs: %.2f kHz (Đọc trong %llu us)\n",
-                          txPriMs, txFsKhz, rx_pri_ms, fs_actual / 1000.0, elapsed_time);
+            Serial.printf("[LOG RX%d] Tx PRI: %.2f ms | Tx Fs: %.2f kHz | Rx PRI: %.2f ms | Rx Fs: %.2f kHz (Đọc trong %llu us)\n",
+                          _receiverId, txPriMs, txFsKhz, rx_pri_ms, fs_actual / 1000.0, elapsed_time);
 #endif
         }
 
         // 6. Gửi dữ liệu qua UDP
-        static uint32_t sendCount = 0;
-        sendCount++;
-        if (sendCount % Constant::UDP_SEND_DIVIDER == 0) {
-            com.sendFrameAsync(frameId++, _send_adc_buffer, Constant::ADC_SAMPLES, Constant::RX_CHANNEL_1_ID);
+        _sendCount++;
+        if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
+            com.sendFrameAsync(frameId++, _send_adc_buffer, Constant::ADC_SAMPLES, _receiverId);
         } else {
             frameId++;
         }
     } else {
         Serial.printf("Lỗi đọc I2S: %d, số bytes đọc được: %u\n", res, bytes_read);
+    }
+}
+
+void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, double txPriMs, double txFsKhz, uint64_t elapsed_time) {
+    // Sao chép buffer thô vào bộ nhớ cục bộ
+    memcpy(_raw_adc_buffer, rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
+
+#ifdef SHOW_SAMPLING_LOG
+    // Tính toán tần số lấy mẫu thực tế dựa trên thời gian thực tế thu nhận
+    double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
+
+    uint64_t current_rx_start_time = esp_timer_get_time();
+    double rx_pri_ms = 0.0;
+    if (_last_rx_start_time != 0) {
+        rx_pri_ms = (double)(current_rx_start_time - _last_rx_start_time) / 1000.0;
+    }
+    _last_rx_start_time = current_rx_start_time;
+#endif
+
+    // 1. DC bias & normalization
+    int16_t mean = calculateDcBias();
+    processRawBuffer(mean);
+
+    // 2. IIR filter
+    applyIirFilter();
+
+    // 3. Peak detection
+    int peak_idx = findSyncPeak();
+
+    if (peak_idx == -1) {
+        static uint32_t dropCount = 0;
+        dropCount++;
+        if (dropCount % 50 == 0) {
+            Serial.printf("[SYNC RX%d] Cảnh báo: Không tìm thấy đỉnh đồng bộ > %.1fV trong %d mẫu đầu. Đã bỏ qua %u xung.\n", 
+                          _receiverId, Constant::SYNC_THRESHOLD_VOLTS, Constant::SYNC_SEARCH_LEN, dropCount);
+        }
+        return;
+    }
+
+    volatile int shift = peak_idx - 1;
+    shiftSignal(shift);
+
+    static uint32_t loopCount = 0;
+    loopCount++;
+    if (loopCount % 50 == 0) {
+#ifdef SHOW_SAMPLING_LOG
+        Serial.printf("[LOG RX%d] Tx PRI: %.2f ms | Tx Fs: %.2f kHz | Rx PRI: %.2f ms | Rx Fs: %.2f kHz (Đọc trong %llu us)\n",
+                      _receiverId, txPriMs, txFsKhz, rx_pri_ms, fs_actual / 1000.0, elapsed_time);
+#endif
+    }
+
+    // 6. Gửi dữ liệu qua UDP
+    _sendCount++;
+    if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
+        com.sendFrameAsync(frameId, _send_adc_buffer, Constant::ADC_SAMPLES, _receiverId);
     }
 }

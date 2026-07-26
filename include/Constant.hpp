@@ -306,6 +306,36 @@ constexpr float ROUND_TRIP_FACTOR = 2.0f;
 // Pulse repetition interval in seconds, converted from milliseconds (Value:
 // 0.03f)
 constexpr float PRI_SECONDS = static_cast<float>(PRI_SINGLE_MS) / 1000.0f;
+// --- Pre-bias and buffer size constants ---
+// Number of pre-bias samples prepended to DAC signals (Value: 4)
+constexpr size_t DAC_PRE_BIAS_SAMPLES = 4;
+
+// Number of receiver channels/slots in ComManager (Value: 3)
+constexpr size_t NUM_QUEUED_FRAMES = 3;
+
+// I2S DMA Buffer Configuration
+constexpr int I2S_DMA_BUF_COUNT = 8;
+constexpr int I2S_DMA_BUF_LEN = 64;
+
+// --- Alignment & Synchronization ---
+// Index to start searching for jitter peaks (Value: 2)
+constexpr int JITTER_SEARCH_START_IDX = 2;
+
+// Log output interval in number of frames (Value: 50)
+constexpr uint32_t LOG_INTERVAL_FRAMES = 50;
+
+// Receiver channel identifier for Rx1 (Value: 1)
+constexpr uint8_t RECEIVER_ID_RX1 = 1;
+
+// Receiver channel identifier for Rx2 (Value: 2)
+constexpr uint8_t RECEIVER_ID_RX2 = 2;
+
+// --- System priority and delay ---
+// Main task scheduling priority (Value: 20)
+constexpr uint32_t MAIN_TASK_PRIORITY = 20;
+
+// Wait time in milliseconds when not streaming (Value: 100)
+constexpr uint32_t WAIT_CONNECT_DELAY_MS = 100;
 } // namespace Constant
 
 #endif // CONSTANT_HPP

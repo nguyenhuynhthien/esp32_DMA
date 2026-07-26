@@ -30,8 +30,9 @@ DacDMAService dacService(dacSignal);
 
 // Khởi tạo các App
 TransmitterDMAApp transmitterApp(dacService);
-ReceiverDMAApp receiverApp(adcService);
-SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp);
+ReceiverDMAApp receiverApp1(adcService, Constant::RECEIVER_ID_RX1);
+ReceiverDMAApp receiverApp2(adcService, Constant::RECEIVER_ID_RX2);
+SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp1, receiverApp2);
 
 uint16_t frameId = 0;
 
@@ -51,7 +52,8 @@ void setup() {
 
   // 4. Khởi tạo các ứng dụng
   transmitterApp.init();
-  receiverApp.init();
+  receiverApp1.init();
+  receiverApp2.init();
   syncApp.init();
 
   // Tạo NetworkTask chạy trên Core 0 (ưu tiên 4) để xử lý toàn bộ truyền thông UDP (nhận và gửi)
