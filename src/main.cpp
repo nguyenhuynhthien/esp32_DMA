@@ -12,6 +12,7 @@
 #include "TransmitterDMAApp.hpp"
 #include "ReceiverDMAApp.hpp"
 #include "SyncSignalDMAApp.hpp"
+#include "SimulatorDMAApp.hpp"
 
 // Thông tin kết nối WiFi
 const char *ssid = "Noel";
@@ -32,7 +33,8 @@ DacDMAService dacService(dacSignal);
 TransmitterDMAApp transmitterApp(dacService);
 ReceiverDMAApp receiverApp1(adcService, Constant::RECEIVER_ID_RX1);
 ReceiverDMAApp receiverApp2(adcService, Constant::RECEIVER_ID_RX2);
-SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp1, receiverApp2);
+SimulatorDMAApp simulatorApp;
+SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp1, receiverApp2, simulatorApp);
 
 void setup() {
   Serial.begin(Constant::SERIAL_BAUD_RATE);
@@ -52,6 +54,7 @@ void setup() {
   transmitterApp.init();
   receiverApp1.init();
   receiverApp2.init();
+  simulatorApp.init();
   syncApp.init();
 
   // Nâng ưu tiên của loopTask lên MAIN_TASK_PRIORITY (cao hơn WiFi/mạng) để triệt tiêu Jitter khi lập lịch

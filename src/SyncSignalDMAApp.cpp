@@ -1,8 +1,8 @@
 #include "SyncSignalDMAApp.hpp"
 #include <Arduino.h>
 
-SyncSignalDMAApp::SyncSignalDMAApp(AdcDMAService& adcService, TransmitterDMAApp& transmitterApp, ReceiverDMAApp& receiverApp1, ReceiverDMAApp& receiverApp2)
-    : _adcService(adcService), _transmitterApp(transmitterApp), _receiverApp1(receiverApp1), _receiverApp2(receiverApp2) {}
+SyncSignalDMAApp::SyncSignalDMAApp(AdcDMAService& adcService, TransmitterDMAApp& transmitterApp, ReceiverDMAApp& receiverApp1, ReceiverDMAApp& receiverApp2, SimulatorDMAApp& simulatorApp)
+    : _adcService(adcService), _transmitterApp(transmitterApp), _receiverApp1(receiverApp1), _receiverApp2(receiverApp2), _simulatorApp(simulatorApp) {}
 
 void SyncSignalDMAApp::init() {
     // Services and Apps are initialized externally or coordinated
@@ -14,13 +14,14 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 
     // 2. Khởi động lại ADC DMA (chu kỳ mới)
     _adcService.start();
-    uint64_t adcStartTime = esp_timer_get_time();
 
     // 3. Vào vùng chặn ngắt để phát DAC đồng bộ ngay lập tức (không delay)
     portMUX_TYPE myMutex = SPINLOCK_INITIALIZER;
     portENTER_CRITICAL(&myMutex);
     _transmitterApp.transmit(com.getPulseType());
     portEXIT_CRITICAL(&myMutex);
+
+    uint64_t adcStartTime = esp_timer_get_time();
 
 #ifdef SHOW_SAMPLING_LOG
     // In log đo chu kỳ phát DAC ngoài vùng critical section để tránh crash CPU
@@ -83,8 +84,8 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 #endif
 
         // Xử lý dữ liệu độc lập cho từng Receiver với cùng một frameId
-        _receiverApp1.process(rx1_buffer, com, frameId, priMs, elapsed_time);
-        _receiverApp2.process(rx2_buffer, com, frameId, priMs, elapsed_time);
+        _receiverApp1.process(rx1_buffer, com, frameId, priMs, elapsed_time, &_simulatorApp);
+        _receiverApp2.process(rx2_buffer, com, frameId, priMs, elapsed_time, &_simulatorApp);
 
         // Tăng frameId cho chu kỳ phát xung tiếp theo
         frameId++;

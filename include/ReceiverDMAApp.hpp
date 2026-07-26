@@ -4,13 +4,14 @@
 #include "AdcDMAService.hpp"
 #include "ComManager.h"
 #include "Constant.hpp"
+#include "SimulatorDMAApp.hpp"
 
 class ReceiverDMAApp {
 public:
     ReceiverDMAApp(AdcDMAService& adcService, uint8_t receiverId);
     void init();
     void receiveAndProcess(ComManager& com, uint16_t frameId, double priMs, uint64_t adcStartTime = 0);
-    void process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time);
+    void process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time, SimulatorDMAApp* simulatorApp = nullptr);
 
 private:
     AdcDMAService& _adcService;

@@ -27,7 +27,7 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t frameId, double
     }
 }
 
-void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time) {
+void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time, SimulatorDMAApp* simulatorApp) {
     // Sao chép buffer thô vào bộ nhớ cục bộ
     memcpy(_raw_adc_buffer, rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
 
@@ -103,11 +103,20 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
         memset(_send_adc_buffer, 0, rshift * sizeof(int16_t));
     }
 
+#ifdef SIMULATION_MODE
+    // Tiêm xung giả lập vào mảng dữ liệu đã đồng bộ
+    if (simulatorApp != nullptr) {
+        simulatorApp->injectSimulationQ15(_send_adc_buffer, Constant::ADC_SAMPLES, com.getPulseType(), frameId, priMs);
+    }
+#endif
+
 #ifdef SHOW_SAMPLING_LOG
     _loopCount++;
     if (_loopCount % Constant::LOG_INTERVAL_FRAMES == 0) {
         Serial.printf("[LOG RX%d] PRI: %.2f ms | Số mẫu: %u | Tần số lấy mẫu thực tế: %.2f kHz (Đọc trong %llu us)\n",
                       _receiverId, priMs, Constant::ADC_SAMPLES, fs_actual / 1000.0, elapsed_time);
+        Serial.printf("[DEBUG RX%d] peak_idx: %d, shift: %d, max_val: %d, mean: %d\n", 
+                      _receiverId, peak_idx, shift, max_val, mean);
     }
 #endif
 
