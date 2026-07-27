@@ -8,18 +8,30 @@ void SyncSignalDMAApp::init() {
     // Services and Apps are initialized externally or coordinated
 }
 
-void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId, double priMs) {
+void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId, double priMs, QueueHandle_t udpQueue) {
+#ifdef SHOW_SAMPLING_LOG
+    uint64_t t_start = esp_timer_get_time();
+#endif
+
     // 1. Dừng ADC DMA trước để đưa về trạng thái tĩnh hoàn toàn
     _adcService.stop();
 
     // 2. Khởi động lại ADC DMA (chu kỳ mới)
     _adcService.start();
 
+#ifdef SHOW_SAMPLING_LOG
+    uint64_t t_after_adc_init = esp_timer_get_time();
+#endif
+
     // 3. Vào vùng chặn ngắt để phát DAC đồng bộ ngay lập tức (không delay)
     portMUX_TYPE myMutex = SPINLOCK_INITIALIZER;
     portENTER_CRITICAL(&myMutex);
     _transmitterApp.transmit(com.getPulseType());
     portEXIT_CRITICAL(&myMutex);
+
+#ifdef SHOW_SAMPLING_LOG
+    uint64_t t_after_dac = esp_timer_get_time();
+#endif
 
     uint64_t adcStartTime = esp_timer_get_time();
 
@@ -36,6 +48,10 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
     size_t bytes_read = 0;
     esp_err_t res = _adcService.readSamples(raw_interleaved_buffer, sizeof(raw_interleaved_buffer), bytes_read);
     uint64_t elapsed_time = esp_timer_get_time() - adcStartTime;
+
+#ifdef SHOW_SAMPLING_LOG
+    uint64_t t_after_read = esp_timer_get_time();
+#endif
 
     if (res == ESP_OK && bytes_read == sizeof(raw_interleaved_buffer)) {
         size_t rx1_count = 0;
@@ -74,18 +90,33 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 #ifdef SHOW_SAMPLING_LOG
         // Debug first 20 samples channel IDs
         static int debug_cnt = 0;
-        if (debug_cnt++ % 50 == 0) {
+        if (debug_cnt++ % Constant::LOG_INTERVAL_FRAMES == 0) {
             Serial.printf("[DEBUG] Channel IDs: ");
             for (int i = 0; i < 20; ++i) {
                 Serial.printf("%d ", (raw_interleaved_buffer[i] >> 12) & 0xF);
             }
             Serial.printf("\n[DEBUG] RX1 count (unique): %u, RX2 count (unique): %u\n", rx1_count, rx2_count);
         }
+        uint64_t t_after_demux = esp_timer_get_time();
 #endif
 
         // Xử lý dữ liệu độc lập cho từng Receiver với cùng một frameId
-        _receiverApp1.process(rx1_buffer, com, frameId, priMs, elapsed_time, &_simulatorApp);
-        _receiverApp2.process(rx2_buffer, com, frameId, priMs, elapsed_time, &_simulatorApp);
+        _receiverApp1.process(rx1_buffer, com, frameId, priMs, elapsed_time, udpQueue, &_simulatorApp);
+        _receiverApp2.process(rx2_buffer, com, frameId, priMs, elapsed_time, udpQueue, &_simulatorApp);
+
+#ifdef SHOW_SAMPLING_LOG
+        uint64_t t_end = esp_timer_get_time();
+        static int profile_cnt = 0;
+        if (profile_cnt++ % Constant::LOG_INTERVAL_FRAMES == 0) {
+            Serial.printf("[PROFILE] ADC Restart: %llu us | DAC Transmit: %llu us | ADC Read DMA: %llu us | Demux & Pad: %llu us | RX Apps Process: %llu us | Total Run: %llu us\n",
+                          t_after_adc_init - t_start,
+                          t_after_dac - t_after_adc_init,
+                          t_after_read - t_after_dac,
+                          t_after_demux - t_after_read,
+                          t_end - t_after_demux,
+                          t_end - t_start);
+        }
+#endif
 
         // Tăng frameId cho chu kỳ phát xung tiếp theo
         frameId++;

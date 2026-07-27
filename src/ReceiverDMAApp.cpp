@@ -21,19 +21,20 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t frameId, double
     uint64_t elapsed_time = esp_timer_get_time() - start_time;
 
     if (res == ESP_OK && bytes_read == sizeof(_raw_adc_buffer)) {
-        process(_raw_adc_buffer, com, frameId, priMs, elapsed_time);
+        process(_raw_adc_buffer, com, frameId, priMs, elapsed_time, nullptr);
     } else {
         Serial.printf("Lỗi đọc I2S: %d, số bytes đọc được: %u\n", res, bytes_read);
     }
 }
 
-void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time, SimulatorDMAApp* simulatorApp) {
+void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time, QueueHandle_t udpQueue, SimulatorDMAApp* simulatorApp) {
     // Sao chép buffer thô vào bộ nhớ cục bộ
     memcpy(_raw_adc_buffer, rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
 
 #ifdef SHOW_SAMPLING_LOG
     // Tính toán tần số lấy mẫu thực tế dựa trên thời gian thực tế thu nhận
     double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
+    uint64_t t_dsp_start = esp_timer_get_time();
 #endif
 
     // Tính giá trị trung bình (DC bias) của buffer thô
@@ -111,15 +112,32 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
 #endif
 
 #ifdef SHOW_SAMPLING_LOG
+    uint64_t t_dsp_end = esp_timer_get_time();
+    uint64_t t_udp_start = esp_timer_get_time();
+#endif
+
+    if (udpQueue != nullptr) {
+        UdpFrameMessage msg;
+        msg.frameId = frameId;
+        msg.receiverId = _receiverId;
+        memcpy(msg.samples, _send_adc_buffer, Constant::ADC_SAMPLES * sizeof(int16_t));
+        xQueueSend(udpQueue, &msg, 0);
+    } else {
+        // Gửi dữ liệu qua giao thức UDP của ComManager đến SonarViewer dưới định dạng kênh tương ứng
+        com.sendFrame(frameId, _send_adc_buffer, Constant::ADC_SAMPLES, _receiverId);
+    }
+
+#ifdef SHOW_SAMPLING_LOG
+    uint64_t t_udp_end = esp_timer_get_time();
+
     _loopCount++;
     if (_loopCount % Constant::LOG_INTERVAL_FRAMES == 0) {
         Serial.printf("[LOG RX%d] PRI: %.2f ms | Số mẫu: %u | Tần số lấy mẫu thực tế: %.2f kHz (Đọc trong %llu us)\n",
                       _receiverId, priMs, Constant::ADC_SAMPLES, fs_actual / 1000.0, elapsed_time);
         Serial.printf("[DEBUG RX%d] peak_idx: %d, shift: %d, max_val: %d, mean: %d\n", 
                       _receiverId, peak_idx, shift, max_val, mean);
+        Serial.printf("[PROFILE RX%d] DSP Processing: %llu us | Queue Push/UDP Transmit: %llu us\n",
+                      _receiverId, t_dsp_end - t_dsp_start, t_udp_end - t_udp_start);
     }
 #endif
-
-    // Gửi dữ liệu qua giao thức UDP của ComManager đến SonarViewer dưới định dạng kênh tương ứng
-    com.sendFrame(frameId, _send_adc_buffer, Constant::ADC_SAMPLES, _receiverId);
 }

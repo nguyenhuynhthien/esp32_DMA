@@ -6,12 +6,16 @@
 #include "Constant.hpp"
 #include "SimulatorDMAApp.hpp"
 
+#include "UdpFrameMessage.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+
 class ReceiverDMAApp {
 public:
     ReceiverDMAApp(AdcDMAService& adcService, uint8_t receiverId);
     void init();
     void receiveAndProcess(ComManager& com, uint16_t frameId, double priMs, uint64_t adcStartTime = 0);
-    void process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time, SimulatorDMAApp* simulatorApp = nullptr);
+    void process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time, QueueHandle_t udpQueue = nullptr, SimulatorDMAApp* simulatorApp = nullptr);
 
 private:
     AdcDMAService& _adcService;

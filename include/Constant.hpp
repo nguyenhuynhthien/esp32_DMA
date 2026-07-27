@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 // Define to enable ADC/DAC PRI and Fs measurement logging
-#define SHOW_SAMPLING_LOG
+// #define SHOW_SAMPLING_LOG
 
 // Define to enable simulation mode (injects echo signal)
 #define SIMULATION_MODE
@@ -121,7 +121,8 @@ constexpr int Q15_SCALE_SHIFT = Q15_SHIFT - (ADC_BITS - 1);
 // Window size in samples for locating synchronization peak (Value: 120)
 constexpr int JITTER_WINDOW_LEN = 120;
 
-// Maximum index to search for synchronization peaks to prevent cycle jumping (Value: 30)
+// Maximum index to search for synchronization peaks to prevent cycle jumping
+// (Value: 30)
 constexpr int SYNC_SEARCH_LIMIT = 30;
 
 // Percentage threshold relative to absolute max peak to identify primary peak
@@ -317,6 +318,14 @@ constexpr uint32_t MAIN_TASK_PRIORITY = 20;
 
 // Wait time in milliseconds when not streaming (Value: 100)
 constexpr uint32_t WAIT_CONNECT_DELAY_MS = 100;
+
+// --- UDP Offload Task Configuration ---
+// Priority of the UDP sending task on Core 0 (Value: 4)
+constexpr uint32_t UDP_TASK_PRIORITY = 4;
+// Stack size for the UDP sending task (Value: 8192)
+constexpr uint32_t UDP_TASK_STACK_SIZE = 8192;
+// Maximum length of the UDP frame message queue (Value: 4)
+constexpr uint32_t UDP_QUEUE_LEN = 4;
 } // namespace Constant
 
 #endif // CONSTANT_HPP

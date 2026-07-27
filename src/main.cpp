@@ -13,6 +13,34 @@
 #include "ReceiverDMAApp.hpp"
 #include "SyncSignalDMAApp.hpp"
 #include "SimulatorDMAApp.hpp"
+#include "UdpFrameMessage.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
+
+QueueHandle_t udpQueue = nullptr;
+
+void udpSendTask(void* pvParameters) {
+    ComManager* pCom = (ComManager*)pvParameters;
+    static UdpFrameMessage msg;
+    Serial.println("[UDP Task] Bắt đầu chạy trên Core 0...");
+    while (true) {
+        if (xQueueReceive(udpQueue, &msg, portMAX_DELAY) == pdTRUE) {
+#ifdef SHOW_SAMPLING_LOG
+            uint64_t t_start = esp_timer_get_time();
+#endif
+            pCom->sendFrame(msg.frameId, msg.samples, Constant::ADC_SAMPLES, msg.receiverId);
+#ifdef SHOW_SAMPLING_LOG
+            uint64_t t_end = esp_timer_get_time();
+            static int udp_profile_cnt = 0;
+            if (udp_profile_cnt++ % Constant::LOG_INTERVAL_FRAMES == 0) {
+                Serial.printf("[PROFILE CORE 0] UDP Transmit thực tế: %llu us (RX%d, Frame %u)\n", 
+                              t_end - t_start, msg.receiverId, msg.frameId);
+            }
+#endif
+        }
+    }
+}
 
 // Thông tin kết nối WiFi
 const char *ssid = "Noel";
@@ -59,6 +87,23 @@ void setup() {
 
   // Nâng ưu tiên của loopTask lên MAIN_TASK_PRIORITY (cao hơn WiFi/mạng) để triệt tiêu Jitter khi lập lịch
   vTaskPrioritySet(NULL, Constant::MAIN_TASK_PRIORITY);
+
+  // Khởi tạo hàng đợi UDP
+  udpQueue = xQueueCreate(Constant::UDP_QUEUE_LEN, sizeof(UdpFrameMessage));
+  if (udpQueue == nullptr) {
+      Serial.println("Lỗi tạo UDP Queue!");
+  } else {
+      // Khởi tạo Task truyền UDP trên Core 0
+      xTaskCreatePinnedToCore(
+          udpSendTask,
+          "UdpSendTask",
+          Constant::UDP_TASK_STACK_SIZE,
+          &com,
+          Constant::UDP_TASK_PRIORITY,
+          NULL,
+          0 // Ghim task vào Core 0
+      );
+  }
 }
 
 uint16_t frameId = 0;
@@ -77,7 +122,7 @@ void loop() {
     last_time = current_time;
 
     // Chạy chu kỳ phát xung và thu tín hiệu đồng bộ thông qua SyncSignalDMAApp
-    syncApp.runIteration(com, frameId, pri_ms);
+    syncApp.runIteration(com, frameId, pri_ms, udpQueue);
 
     // Trễ chủ động
     delay(0);
