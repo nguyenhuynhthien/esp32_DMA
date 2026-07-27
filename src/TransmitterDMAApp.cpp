@@ -26,7 +26,7 @@ void IRAM_ATTR TransmitterDMAApp::transmit(ComManager::PulseType pulseType) {
 }
 
 #ifdef SHOW_SAMPLING_LOG
-void TransmitterDMAApp::printDacMetrics() {
+void TransmitterDMAApp::printDacMetrics(double priMs) {
     _loopCount++;
     if (_loopCount % Constant::LOG_INTERVAL_FRAMES == 0) {
         uint64_t elapsed_cycles = _dacService.getLastTransmitCycles();
@@ -34,8 +34,8 @@ void TransmitterDMAApp::printDacMetrics() {
         uint32_t cpu_freq_mhz = ESP.getCpuFreqMHz();
         double elapsed_time = (double)elapsed_cycles / (double)cpu_freq_mhz;
         double fs_dac = (double)length * 1000000.0 / elapsed_time;
-        Serial.printf("[LOG DAC] PRI: %.2f ms | Số mẫu: %u | Tần số phát thực tế: %.2f kHz (Phát trong %.2f us)\n",
-                      elapsed_time / 1000.0, length, fs_dac / 1000.0, elapsed_time);
+        Serial.printf("[LOG DAC] PRI: %.2f ms | Số mẫu: %u | Tần số phát thực tế: %.2f kHz (Độ rộng xung: %.2f us)\n",
+                      priMs, length, fs_dac / 1000.0, elapsed_time);
     }
 }
 #endif

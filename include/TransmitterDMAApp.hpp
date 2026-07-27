@@ -12,7 +12,7 @@ public:
     void init();
     void IRAM_ATTR transmit(ComManager::PulseType pulseType);
 #ifdef SHOW_SAMPLING_LOG
-    void printDacMetrics();
+    void printDacMetrics(double priMs);
 #endif
 
 private:

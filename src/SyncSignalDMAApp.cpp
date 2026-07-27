@@ -25,7 +25,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 
 #ifdef SHOW_SAMPLING_LOG
     // In log đo chu kỳ phát DAC ngoài vùng critical section để tránh crash CPU
-    _transmitterApp.printDacMetrics();
+    _transmitterApp.printDacMetrics(priMs);
 #endif
 
     // 4. Nhận và xử lý dữ liệu từ ADC DMA cho cả 2 kênh
