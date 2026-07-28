@@ -11,6 +11,10 @@ void SyncSignalDMAApp::init() {
 void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId, double priMs, QueueHandle_t udpQueue) {
 #ifdef SHOW_SAMPLING_LOG
     uint64_t t_start = esp_timer_get_time();
+#ifdef TRACE_TASK_TIMING
+    Serial.printf("[TRACE][CORE %d][SYNC] frame=%u enter pri=%.2f ms\n",
+                  xPortGetCoreID(), frameId, priMs);
+#endif
 #endif
 
     // 1. Dừng ADC DMA trước để đưa về trạng thái tĩnh hoàn toàn
@@ -105,17 +109,21 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
         _receiverApp2.process(rx2_buffer, com, frameId, priMs, elapsed_time, udpQueue, &_simulatorApp);
 
 #ifdef SHOW_SAMPLING_LOG
-        uint64_t t_end = esp_timer_get_time();
-        static int profile_cnt = 0;
-        if (profile_cnt++ % Constant::LOG_INTERVAL_FRAMES == 0) {
-            Serial.printf("[PROFILE] ADC Restart: %llu us | DAC Transmit: %llu us | ADC Read DMA: %llu us | Demux & Pad: %llu us | RX Apps Process: %llu us | Total Run: %llu us\n",
-                          t_after_adc_init - t_start,
-                          t_after_dac - t_after_adc_init,
-                          t_after_read - t_after_dac,
-                          t_after_demux - t_after_read,
-                          t_end - t_after_demux,
-                          t_end - t_start);
-        }
+    uint64_t t_end = esp_timer_get_time();
+    static int profile_cnt = 0;
+    if (profile_cnt++ % Constant::LOG_INTERVAL_FRAMES == 0) {
+        Serial.printf("[PROFILE] ADC Restart: %llu us | DAC Transmit: %llu us | ADC Read DMA: %llu us | Demux & Pad: %llu us | RX Apps Process: %llu us | Total Run: %llu us\n",
+                      t_after_adc_init - t_start,
+                      t_after_dac - t_after_adc_init,
+                      t_after_read - t_after_dac,
+                      t_after_demux - t_after_read,
+                      t_end - t_after_demux,
+                      t_end - t_start);
+    }
+#ifdef TRACE_TASK_TIMING
+    Serial.printf("[TRACE][CORE %d][SYNC] frame=%u total=%llu us\n",
+                  xPortGetCoreID(), frameId, t_end - t_start);
+#endif
 #endif
 
         // Tăng frameId cho chu kỳ phát xung tiếp theo

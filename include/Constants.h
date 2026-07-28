@@ -6,6 +6,9 @@
 // Define to enable ADC/DAC PRI and Fs measurement logging
 // #define SHOW_SAMPLING_LOG
 
+// Define to trace task timing on each core while debugging watchdog issues
+// #define TRACE_TASK_TIMING
+
 // Define to enable simulation mode (injects echo signal)
 #define SIMULATION_MODE
 

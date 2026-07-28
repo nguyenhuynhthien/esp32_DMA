@@ -1,4 +1,5 @@
 #include "ReceiverDMAApp.hpp"
+#include "../service/Q15SimdHelper.h"
 #include <Arduino.h>
 
 #ifdef SHOW_SAMPLING_LOG
@@ -32,25 +33,31 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
     memcpy(_raw_adc_buffer, rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
 
 #ifdef SHOW_SAMPLING_LOG
+    uint64_t t_process_start = esp_timer_get_time();
     // Tính toán tần số lấy mẫu thực tế dựa trên thời gian thực tế thu nhận
     double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
     uint64_t t_dsp_start = esp_timer_get_time();
+#ifdef TRACE_TASK_TIMING
+    Serial.printf("[TRACE][CORE %d][RX%u] frame=%u process begin\n",
+                  xPortGetCoreID(), _receiverId, frameId);
+#endif
 #endif
 
     // Tính giá trị trung bình (DC bias) của buffer thô
     int32_t sum = 0;
-    for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
-        // Mask lấy 12-bit từ dữ liệu đọc được từ I2S
+    for (size_t i = 0; i < Constant::ADC_SAMPLES; i += 2) {
         _raw_adc_buffer[i] &= Constant::ADC_RESOLUTION_MAX;
-        sum += _raw_adc_buffer[i];
+        _raw_adc_buffer[i + 1] &= Constant::ADC_RESOLUTION_MAX;
+        sum += _raw_adc_buffer[i] + _raw_adc_buffer[i + 1];
     }
     // Tối ưu hóa phép chia cho 2048 bằng phép dịch bit phải 11
     int16_t mean = sum >> Constant::ADC_SAMPLES_SHIFT;
 
     // Chỉ cần chuẩn hóa cửa sổ đầu tiên để tìm đỉnh cục bộ phục vụ căn chỉnh
-    for (int i = 0; i < Constant::JITTER_WINDOW_LEN; ++i) {
-        int32_t centered = ((int32_t)_raw_adc_buffer[i] - mean) << Constant::Q15_SCALE_SHIFT;
-        _send_adc_buffer[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
+    for (int i = 0; i < Constant::JITTER_WINDOW_LEN; i += 2) {
+        Q15x2 q = q15x2_add_sat_adc(&_raw_adc_buffer[i], mean);
+        _send_adc_buffer[i] = q.lane[0];
+        _send_adc_buffer[i + 1] = q.lane[1];
     }
 
     // Đồng bộ hóa phần mềm để loại bỏ jitter:
@@ -87,19 +94,26 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
     // 4. Căn chỉnh lại mảng tín hiệu và điền 0 vào phần trống để đảm bảo luôn đủ 2048 mẫu.
     if (shift > 0) {
         // Dịch trái
-        for (size_t i = 0; i < Constant::ADC_SAMPLES - shift; ++i) {
-            int32_t centered = ((int32_t)_raw_adc_buffer[i + shift] - mean) << Constant::Q15_SCALE_SHIFT;
-            _send_adc_buffer[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
+        size_t count = Constant::ADC_SAMPLES - shift;
+        size_t i = 0;
+        for (; i + 1 < count; i += 2) {
+            Q15x2 q = q15x2_add_sat_adc(&_raw_adc_buffer[i + shift], mean);
+            _send_adc_buffer[i] = q.lane[0];
+            _send_adc_buffer[i + 1] = q.lane[1];
         }
+        if (i < count) _send_adc_buffer[i] = q15x2_add_sat_adc(&_raw_adc_buffer[i + shift], mean).lane[0];
         // Xóa nhanh vùng cuối mảng bằng memset
         memset(&_send_adc_buffer[Constant::ADC_SAMPLES - shift], 0, shift * sizeof(int16_t));
     } else {
         // Dịch phải (shift <= 0)
         int rshift = -shift;
-        for (int i = (int)Constant::ADC_SAMPLES - 1; i >= rshift; --i) {
-            int32_t centered = ((int32_t)_raw_adc_buffer[i - rshift] - mean) << Constant::Q15_SCALE_SHIFT;
-            _send_adc_buffer[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
+        int i = (int)Constant::ADC_SAMPLES - 1;
+        for (; i - 1 >= rshift; i -= 2) {
+            Q15x2 q = q15x2_add_sat_adc(&_raw_adc_buffer[i - 1 - rshift], mean);
+            _send_adc_buffer[i - 1] = q.lane[0];
+            _send_adc_buffer[i] = q.lane[1];
         }
+        if (i >= rshift) _send_adc_buffer[i] = q15x2_add_sat_adc(&_raw_adc_buffer[i - rshift], mean).lane[0];
         // Xóa nhanh vùng đầu mảng bằng memset
         memset(_send_adc_buffer, 0, rshift * sizeof(int16_t));
     }
@@ -139,5 +153,12 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
         Serial.printf("[PROFILE RX%d] DSP Processing: %llu us | Queue Push/UDP Transmit: %llu us\n",
                       _receiverId, t_dsp_end - t_dsp_start, t_udp_end - t_udp_start);
     }
+#ifdef TRACE_TASK_TIMING
+    Serial.printf("[TRACE][CORE %d][RX%u] frame=%u total=%llu us (dsp=%llu us, udp=%llu us)\n",
+                  xPortGetCoreID(), _receiverId, frameId,
+                  t_udp_end - t_process_start,
+                  t_dsp_end - t_dsp_start,
+                  t_udp_end - t_udp_start);
+#endif
 #endif
 }

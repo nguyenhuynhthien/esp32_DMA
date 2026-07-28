@@ -28,6 +28,10 @@ void udpSendTask(void* pvParameters) {
         if (xQueueReceive(udpQueue, &msg, portMAX_DELAY) == pdTRUE) {
 #ifdef SHOW_SAMPLING_LOG
             uint64_t t_start = esp_timer_get_time();
+#ifdef TRACE_TASK_TIMING
+            Serial.printf("[TRACE][CORE %d][UDP] Dequeue frame=%u rx=%u\n",
+                          xPortGetCoreID(), msg.frameId, msg.receiverId);
+#endif
 #endif
             pCom->sendFrame(msg.frameId, msg.samples, Constant::ADC_SAMPLES, msg.receiverId);
 #ifdef SHOW_SAMPLING_LOG
@@ -37,6 +41,11 @@ void udpSendTask(void* pvParameters) {
                 Serial.printf("[PROFILE CORE 0] UDP Transmit thực tế: %llu us (RX%d, Frame %u)\n", 
                               t_end - t_start, msg.receiverId, msg.frameId);
             }
+#ifdef TRACE_TASK_TIMING
+            Serial.printf("[TRACE][CORE %d][UDP] frame=%u rx=%u took=%llu us\n",
+                          xPortGetCoreID(), msg.frameId, msg.receiverId,
+                          t_end - t_start);
+#endif
 #endif
         }
     }
@@ -110,6 +119,11 @@ uint16_t frameId = 0;
 
 void loop() {
   // Xử lý các gói tin UDP và cập nhật trạng thái kết nối
+#ifdef TRACE_TASK_TIMING
+  uint64_t loop_begin = esp_timer_get_time();
+  Serial.printf("[TRACE][CORE %d][LOOP] begin frame=%u streaming=%d\n",
+                xPortGetCoreID(), frameId, com.isStreaming() ? 1 : 0);
+#endif
   com.update();
 
   if (com.isStreaming()) {
@@ -130,4 +144,8 @@ void loop() {
     // Chờ kết nối
     delay(Constant::WAIT_CONNECT_DELAY_MS);
   }
+#ifdef TRACE_TASK_TIMING
+  Serial.printf("[TRACE][CORE %d][LOOP] end frame=%u duration=%llu us\n",
+                xPortGetCoreID(), frameId, esp_timer_get_time() - loop_begin);
+#endif
 }

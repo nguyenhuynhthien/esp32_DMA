@@ -175,7 +175,14 @@ void ComManager::sendFrame(uint16_t frameId, const int16_t *samples,
 
     // Pace transmission using configured delay to avoid WiFi buffer overflow
     delayMicroseconds(Constant::UDP_PACE_DELAY_US);
+
+    // Let the scheduler run so core 0 can service idle/WiFi tasks and avoid WDT
+    if ((i & 1U) == 1U) {
+      taskYIELD();
+    }
   }
+
+  vTaskDelay(1);
 }
 
 void ComManager::sendAngle(uint16_t angle) {

@@ -1,4 +1,5 @@
 #include "SimulatorDMAApp.hpp"
+#include "../service/Q15SimdHelper.h"
 
 SimulatorDMAApp::SimulatorDMAApp() : _noise_idx(0) {}
 
@@ -22,10 +23,17 @@ void SimulatorDMAApp::injectSimulationQ15(int16_t* sendBuffer, size_t size, ComM
 
     // 1. Tiêm nhiễu Gauss bằng cách lấy mẫu tuần hoàn từ bảng nhiễu đã sinh sẵn (tối ưu hóa tốc độ cực đại)
     size_t start_idx = random(0, NOISE_TABLE_SIZE);
-    for (size_t i = 0; i < size; ++i) {
-        int32_t val = sendBuffer[i] + _noise_table[(start_idx + i) % NOISE_TABLE_SIZE];
-        sendBuffer[i] = static_cast<int16_t>(constrain(val, Constant::Q15_MIN, Constant::Q15_MAX));
+    size_t i = 0;
+    for (; i + 1 < size; i += 2) {
+        Q15x2 signal = q15x2_make(sendBuffer[i + 1], sendBuffer[i]);
+        Q15x2 noise = q15x2_make(_noise_table[(start_idx + i + 1) % NOISE_TABLE_SIZE],
+                                 _noise_table[(start_idx + i) % NOISE_TABLE_SIZE]);
+        Q15x2 mixed = q15x2_add_sat(signal, noise);
+        sendBuffer[i] = mixed.lane[0];
+        sendBuffer[i + 1] = mixed.lane[1];
     }
+    if (i < size) sendBuffer[i] = q15x2_add_sat(q15x2_make(sendBuffer[i], 0),
+                                                q15x2_make(_noise_table[(start_idx + i) % NOISE_TABLE_SIZE], 0)).lane[0];
 
     // 2. Tính toán các thông số Doppler sử dụng float (Hardware FPU của ESP32)
     float fd = 0.0f;
