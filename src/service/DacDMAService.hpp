@@ -1,8 +1,8 @@
 #ifndef DAC_DMA_SERVICE_HPP
 #define DAC_DMA_SERVICE_HPP
 
-#include "DacDMASignal.hpp"
-#include "Constant.hpp"
+#include "../driver/DacDMASignal.hpp"
+#include "../../include/Constants.h"
 
 class DacDMAService {
 public:

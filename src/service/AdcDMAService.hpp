@@ -1,7 +1,7 @@
 #ifndef ADC_DMA_SERVICE_HPP
 #define ADC_DMA_SERVICE_HPP
 
-#include "AdcDMASignal.hpp"
+#include "../driver/AdcDMASignal.hpp"
 
 class AdcDMAService {
 public:

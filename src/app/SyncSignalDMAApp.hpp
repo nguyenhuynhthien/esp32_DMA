@@ -1,7 +1,7 @@
 #ifndef SYNC_SIGNAL_DMA_APP_HPP
 #define SYNC_SIGNAL_DMA_APP_HPP
 
-#include "AdcDMAService.hpp"
+#include "../service/AdcDMAService.hpp"
 #include "TransmitterDMAApp.hpp"
 #include "ReceiverDMAApp.hpp"
 #include "SimulatorDMAApp.hpp"

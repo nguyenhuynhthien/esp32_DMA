@@ -1,5 +1,5 @@
 #include "AdcDMASignal.hpp"
-#include "Constant.hpp"
+#include "../../include/Constants.h"
 #include "soc/syscon_struct.h"
 #include "soc/syscon_reg.h"
 

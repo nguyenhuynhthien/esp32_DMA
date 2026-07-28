@@ -1,5 +1,5 @@
 #include "DacDMASignal.hpp"
-#include "Constant.hpp"
+#include "../../include/Constants.h"
 
 #ifdef SHOW_SAMPLING_LOG
 DacDMASignal::DacDMASignal() : _lastTransmitCycles(0), _lastTransmitLength(0) {}

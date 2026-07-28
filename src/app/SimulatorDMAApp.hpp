@@ -2,8 +2,8 @@
 #define SIMULATOR_DMA_APP_HPP
 
 #include <Arduino.h>
-#include "ComManager.h"
-#include "Constant.hpp"
+#include "../service/ComManager.h"
+#include "../../include/Constants.h"
 
 class SimulatorDMAApp {
 public:

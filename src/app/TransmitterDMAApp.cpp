@@ -1,5 +1,5 @@
 #include "TransmitterDMAApp.hpp"
-#include "Constant.hpp"
+#include "../../include/Constants.h"
 
 #ifdef SHOW_SAMPLING_LOG
 TransmitterDMAApp::TransmitterDMAApp(DacDMAService& dacService) : _dacService(dacService), _loopCount(0) {}
