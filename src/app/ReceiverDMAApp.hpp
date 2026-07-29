@@ -15,7 +15,7 @@ public:
     ReceiverDMAApp(AdcDMAService& adcService, uint8_t receiverId);
     void init();
     void receiveAndProcess(ComManager& com, uint16_t frameId, double priMs, uint64_t adcStartTime = 0);
-    void process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time, QueueHandle_t udpQueue = nullptr, SimulatorDMAApp* simulatorApp = nullptr);
+    void process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time, QueueHandle_t udpQueue = nullptr, SimulatorDMAApp* simulatorApp = nullptr, bool txEnabled = false);
 
 private:
     AdcDMAService& _adcService;

@@ -16,7 +16,7 @@ void SimulatorDMAApp::init() {
 
 
 
-void SimulatorDMAApp::injectSimulationQ15(int16_t* sendBuffer, size_t size, ComManager::PulseType pulseType, uint16_t frameId, double priMs) {
+void SimulatorDMAApp::injectSimulationQ15(int16_t* sendBuffer, size_t size, ComManager::PulseType pulseType, uint16_t frameId, double priMs, bool txEnabled) {
     if (sendBuffer == nullptr || size <= Constant::SIMULATOR_DELAY_SAMPLES) {
         return;
     }
@@ -54,6 +54,11 @@ void SimulatorDMAApp::injectSimulationQ15(int16_t* sendBuffer, size_t size, ComM
         pulse_len = Constant::BARKER13_PULSE_LEN;
     } else {
         pulse_len = Constant::FILTER_COEFFS_LEN;
+    }
+
+    // Không bật Tx thì chỉ tiêm nhiễu nền để mô phỏng môi trường thu tĩnh.
+    if (!txEnabled) {
+        return;
     }
 
     // Định nghĩa mã Barker 13 (gồm 13 chip, mỗi chip 8 mẫu)

@@ -28,7 +28,7 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t frameId, double
     }
 }
 
-void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time, QueueHandle_t udpQueue, SimulatorDMAApp* simulatorApp) {
+void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, uint64_t elapsed_time, QueueHandle_t udpQueue, SimulatorDMAApp* simulatorApp, bool txEnabled) {
     // Sao chép buffer thô vào bộ nhớ cục bộ
     memcpy(_raw_adc_buffer, rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
 
@@ -121,7 +121,7 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
 #ifdef SIMULATION_MODE
     // Tiêm xung giả lập vào mảng dữ liệu đã đồng bộ
     if (simulatorApp != nullptr) {
-        simulatorApp->injectSimulationQ15(_send_adc_buffer, Constant::ADC_SAMPLES, com.getPulseType(), frameId, priMs);
+        simulatorApp->injectSimulationQ15(_send_adc_buffer, Constant::ADC_SAMPLES, com.getPulseType(), frameId, priMs, txEnabled);
     }
 #endif
 

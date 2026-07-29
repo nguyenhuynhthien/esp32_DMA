@@ -27,11 +27,14 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
     uint64_t t_after_adc_init = esp_timer_get_time();
 #endif
 
-    // 3. Vào vùng chặn ngắt để phát DAC đồng bộ ngay lập tức (không delay)
-    portMUX_TYPE myMutex = SPINLOCK_INITIALIZER;
-    portENTER_CRITICAL(&myMutex);
-    _transmitterApp.transmit(com.getPulseType());
-    portEXIT_CRITICAL(&myMutex);
+    // 3. Chỉ phát DAC khi Tx On; còn lại vẫn giữ chu kỳ thu để viewer/UDP tiếp tục chạy
+    bool txEnabled = com.isTxEnabled();
+    if (txEnabled) {
+        portMUX_TYPE myMutex = SPINLOCK_INITIALIZER;
+        portENTER_CRITICAL(&myMutex);
+        _transmitterApp.transmit(com.getPulseType());
+        portEXIT_CRITICAL(&myMutex);
+    }
 
 #ifdef SHOW_SAMPLING_LOG
     uint64_t t_after_dac = esp_timer_get_time();
@@ -40,8 +43,10 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
     uint64_t adcStartTime = esp_timer_get_time();
 
 #ifdef SHOW_SAMPLING_LOG
-    // In log đo chu kỳ phát DAC ngoài vùng critical section để tránh crash CPU
-    _transmitterApp.printDacMetrics(priMs);
+    // In log đo chu kỳ phát DAC chỉ khi thật sự có phát xung
+    if (txEnabled) {
+        _transmitterApp.printDacMetrics(priMs);
+    }
 #endif
 
     // 4. Nhận và xử lý dữ liệu từ ADC DMA cho cả 2 kênh
@@ -105,8 +110,8 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 #endif
 
         // Xử lý dữ liệu độc lập cho từng Receiver với cùng một frameId
-        _receiverApp1.process(rx1_buffer, com, frameId, priMs, elapsed_time, udpQueue, &_simulatorApp);
-        _receiverApp2.process(rx2_buffer, com, frameId, priMs, elapsed_time, udpQueue, &_simulatorApp);
+        _receiverApp1.process(rx1_buffer, com, frameId, priMs, elapsed_time, udpQueue, &_simulatorApp, txEnabled);
+        _receiverApp2.process(rx2_buffer, com, frameId, priMs, elapsed_time, udpQueue, &_simulatorApp, txEnabled);
 
 #ifdef SHOW_SAMPLING_LOG
     uint64_t t_end = esp_timer_get_time();
