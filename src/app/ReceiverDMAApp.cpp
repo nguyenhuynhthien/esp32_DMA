@@ -9,17 +9,15 @@ void ReceiverDMAApp::init() {
 }
 
 int16_t ReceiverDMAApp::calculateDcBias() {
-    static int16_t cached_bias = 2048;
-    static int frame_count = 0;
-    if (frame_count++ % 64 == 0) {
+    if (_frame_count++ % 64 == 0) {
         int32_t sum = 0;
         for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
             _raw_adc_buffer[i] &= Constant::ADC_RESOLUTION_MAX;
             sum += _raw_adc_buffer[i];
         }
-        cached_bias = sum >> Constant::ADC_SAMPLES_SHIFT;
+        _cached_bias = sum >> Constant::ADC_SAMPLES_SHIFT;
     }
-    return cached_bias;
+    return _cached_bias;
 }
 
 // Hàm bão hòa số nguyên 16-bit nhanh hơn macro constrain của Arduino
@@ -170,7 +168,7 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
     }
 }
 
-void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, double txPriMs, double txFsKhz, uint64_t elapsed_time, SimulatorDMAApp* simulatorApp) {
+void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, double txPriMs, double txFsKhz, uint64_t elapsed_time, SimulatorDMAApp* simulatorApp, bool txEnabled) {
     // Sao chép buffer thô vào bộ nhớ cục bộ
     memcpy(_raw_adc_buffer, rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
 
@@ -186,41 +184,45 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
     // 2. IIR filter
     applyIirFilter();
 
-    // 3. Peak detection
-    int peak_idx = findSyncPeak();
-
-    if (peak_idx == -1) {
+    // 3. Peak detection (Only when Tx is enabled)
+    bool has_valid_signal = true;
+    if (txEnabled) {
+        int peak_idx = findSyncPeak();
+        if (peak_idx == -1) {
 #ifdef SHOW_SAMPLING_LOG
-        _dropCount++;
-        if (_dropCount % 50 == 0) {
-            Serial.printf("[SYNC RX%d] Cảnh báo: Không tìm thấy đỉnh đồng bộ > %.1fV trong %d mẫu đầu. Đã bỏ qua %u xung.\n", 
-                          _receiverId, Constant::SYNC_THRESHOLD_VOLTS, Constant::SYNC_SEARCH_LEN, _dropCount);
+            _dropCount++;
+            if (_dropCount % 50 == 0) {
+                Serial.printf("[SYNC RX%d] Cảnh báo: Không tìm thấy đỉnh đồng bộ > %.1fV trong %d mẫu đầu. Đã bỏ qua %u xung.\n", 
+                              _receiverId, Constant::SYNC_THRESHOLD_VOLTS, Constant::SYNC_SEARCH_LEN, _dropCount);
+            }
+#endif
+            has_valid_signal = false;
+        } else {
+            volatile int shift = peak_idx - 1;
+            shiftSignal(shift);
+        }
+    }
+
+    if (!txEnabled || has_valid_signal) {
+#ifdef SIMULATION_MODE
+        // Tiêm xung giả lập vào mảng dữ liệu đã đồng bộ
+        if (simulatorApp != nullptr) {
+            simulatorApp->injectSimulationQ15(_send_adc_buffer, Constant::ADC_SAMPLES, com.getPulseType(), frameId, priMs, txEnabled);
         }
 #endif
-        return;
-    }
-
-    volatile int shift = peak_idx - 1;
-    shiftSignal(shift);
-
-#ifdef SIMULATION_MODE
-    // Tiêm xung giả lập vào mảng dữ liệu đã đồng bộ
-    if (simulatorApp != nullptr) {
-        simulatorApp->injectSimulationQ15(_send_adc_buffer, Constant::ADC_SAMPLES, com.getPulseType(), frameId, priMs);
-    }
-#endif
 
 #ifdef SHOW_SAMPLING_LOG
-    _loopCount++;
-    if (_loopCount % 50 == 0) {
-        Serial.printf("[LOG RX%d] Tx PRI: %.2f ms | Tx Fs: %.2f kHz | Rx PRI: %.2f ms | Rx Fs: %.2f kHz (Đọc trong %llu us)\n",
-                      _receiverId, txPriMs, txFsKhz, priMs, fs_actual / 1000.0, elapsed_time);
-    }
+        _loopCount++;
+        if (_loopCount % 50 == 0) {
+            Serial.printf("[LOG RX%d] Tx PRI: %.2f ms | Tx Fs: %.2f kHz | Rx PRI: %.2f ms | Rx Fs: %.2f kHz (Đọc trong %llu us)\n",
+                          _receiverId, txPriMs, txFsKhz, priMs, fs_actual / 1000.0, elapsed_time);
+        }
 #endif
 
-    // 6. Gửi dữ liệu qua UDP
-    _sendCount++;
-    if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
-        com.sendFrameAsync(frameId, _send_adc_buffer, Constant::ADC_SAMPLES, _receiverId);
+        // 6. Gửi dữ liệu qua UDP
+        _sendCount++;
+        if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
+            com.sendFrameAsync(frameId, _send_adc_buffer, Constant::ADC_SAMPLES, _receiverId);
+        }
     }
 }

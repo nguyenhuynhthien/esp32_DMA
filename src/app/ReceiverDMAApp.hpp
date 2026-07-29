@@ -12,7 +12,7 @@ public:
     ReceiverDMAApp(AdcDMAService& adcService, uint8_t receiverId);
     void init();
     void receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs, double txPriMs = 0.0, double txFsKhz = 0.0, uint64_t adcStartTime = 0);
-    void process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, double txPriMs, double txFsKhz, uint64_t elapsed_time, SimulatorDMAApp* simulatorApp = nullptr);
+    void process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, double txPriMs, double txFsKhz, uint64_t elapsed_time, SimulatorDMAApp* simulatorApp = nullptr, bool txEnabled = false);
 
 private:
     AdcDMAService& _adcService;
@@ -25,6 +25,9 @@ private:
     void applyIirFilter();
     int findSyncPeak();
     void shiftSignal(int shift);
+
+    int16_t _cached_bias = 2048;
+    int _frame_count = 0;
 
 #ifdef SHOW_SAMPLING_LOG
     uint32_t _loopCount = 0;

@@ -9,7 +9,7 @@ class SimulatorDMAApp {
 public:
     SimulatorDMAApp();
     void init();
-    void injectSimulationQ15(int16_t* sendBuffer, size_t size, ComManager::PulseType pulseType, uint16_t frameId, double priMs);
+    void injectSimulationQ15(int16_t* sendBuffer, size_t size, ComManager::PulseType pulseType, uint16_t frameId, double priMs, bool txEnabled);
 
 private:
     static constexpr size_t NOISE_TABLE_SIZE = 512;
