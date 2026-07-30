@@ -171,10 +171,14 @@ void ComManager::sendFrame(uint16_t frameId, const int16_t *samples,
     _udp.write((const uint8_t *)&header, sizeof(header));
     _udp.write((const uint8_t *)(samples + i * CHUNK_SAMPLES),
                CHUNK_SAMPLES * sizeof(int16_t));
-    _udp.endPacket();
-
-    // Pace transmission using configured delay to avoid WiFi buffer overflow
-    delayMicroseconds(Constant::UDP_PACE_DELAY_US);
+    
+    if (_udp.endPacket() == 0) {
+        // Gửi thất bại do tràn bộ đệm mạng (ERR_MEM), hoãn lại để WiFi giải phóng bộ nhớ
+        vTaskDelay(pdMS_TO_TICKS(Constant::UDP_BACKPRESSURE_DELAY_MS));
+    } else {
+        // Pace transmission using configured delay to avoid WiFi buffer overflow
+        delayMicroseconds(Constant::UDP_PACE_DELAY_US);
+    }
   }
 }
 
@@ -217,7 +221,7 @@ void ComManager::sendFrameAsync(uint16_t frameId, const int16_t *samples,
 
   _queuedFrames[slot].frameId = frameId;
   _queuedFrames[slot].receiverId = receiverId;
-  _queuedFrames[slot].samples = samples;
+  memcpy(_queuedFrames[slot].samples, samples, Constant::ADC_SAMPLES * sizeof(int16_t));
   _queuedFrames[slot].ready = true;
 }
 

@@ -33,6 +33,8 @@ TransmitterDMAApp transmitterApp(dacService);
 ReceiverDMAApp receiverApp(adcService);
 SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp);
 
+uint16_t frameId = 0;
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -52,32 +54,68 @@ void setup() {
   receiverApp.init();
   syncApp.init();
 
-  // Nâng ưu tiên của loopTask lên 20 (cao hơn WiFi/mạng) để triệt tiêu Jitter khi lập lịch
-  vTaskPrioritySet(NULL, 20);
+  // Tạo NetworkTask chạy trên Core 0 (ưu tiên 4) để xử lý toàn bộ truyền thông UDP (nhận và gửi)
+  xTaskCreatePinnedToCore(
+      [](void *param) {
+        Serial.println("Network Task (Core 0) started.");
+        while (true) {
+          // Nhận lệnh UDP đến (cần chạy cùng core với việc gửi để an toàn thread)
+          com.update();
+
+          // Gửi dữ liệu UDP bất đồng bộ
+          if (!com.processAsyncSends()) {
+            vTaskDelay(pdMS_TO_TICKS(5));
+          } else {
+            vTaskDelay(pdMS_TO_TICKS(1));
+          }
+        }
+      },
+      "NetworkTask", 4096, nullptr, 4, nullptr, 0
+  );
+
+  // Tạo SyncTask chạy trên Core 1 (ưu tiên 20) để chạy vòng lặp thu phát thời gian thực ADC/DAC
+  xTaskCreatePinnedToCore(
+      [](void *param) {
+        Serial.println("Sync Task (Core 1) started.");
+        while (true) {
+          if (com.isStreaming()) {
+            uint64_t start_time = esp_timer_get_time();
+
+            // Xác định target PRI (15ms cho Single Pulse, 20ms cho Barker 13)
+            double target_pri = (com.getPulseType() == ComManager::PULSE_SINGLE) ? 15.0 : 20.0;
+
+            static uint64_t last_time = 0;
+            uint64_t current_time = esp_timer_get_time();
+            double pri_ms = 0.0;
+            if (last_time != 0) {
+              pri_ms = (double)(current_time - last_time) / 1000.0;
+            }
+            last_time = current_time;
+
+            syncApp.runIteration(com, frameId, pri_ms);
+
+            // Bù trễ để ổn định chu kỳ PRI
+            uint64_t elapsed_us = esp_timer_get_time() - start_time;
+            uint64_t target_us = (uint64_t)(target_pri * 1000.0);
+            if (elapsed_us < target_us) {
+              uint64_t wait_us = target_us - elapsed_us;
+              if (wait_us >= 2000) {
+                vTaskDelay(pdMS_TO_TICKS(wait_us / 1000));
+              } else {
+                delayMicroseconds(wait_us);
+              }
+            } else {
+              vTaskDelay(0);
+            }
+          } else {
+            vTaskDelay(pdMS_TO_TICKS(100));
+          }
+        }
+      },
+      "SyncTask", 8192, nullptr, 20, nullptr, 1
+  );
 }
 
-uint16_t frameId = 0;
-
 void loop() {
-  // Xử lý các gói tin UDP và cập nhật trạng thái kết nối
-  com.update();
-
-  if (com.isStreaming()) {
-    static uint64_t last_time = 0;
-    uint64_t current_time = esp_timer_get_time();
-    double pri_ms = 0.0;
-    if (last_time != 0) {
-      pri_ms = (double)(current_time - last_time) / 1000.0;
-    }
-    last_time = current_time;
-
-    // Chạy chu kỳ phát xung và thu tín hiệu đồng bộ thông qua SyncSignalDMAApp
-    syncApp.runIteration(com, frameId, pri_ms);
-
-    // Trễ chủ động
-    delay(0);
-  } else {
-    // Chờ kết nối
-    delay(100);
-  }
+  vTaskDelay(pdMS_TO_TICKS(1000));
 }

@@ -101,8 +101,8 @@ constexpr int JITTER_WINDOW_LEN = 120;
 // Percentage threshold relative to absolute max peak to identify primary peak (Value: 45)
 constexpr int16_t PEAK_THRESHOLD_PERCENT = 45;
 
-// Default peak index to return when peak detection fails (Value: DAC_PULSE_LEN, which is 12)
-constexpr int DEFAULT_PEAK_IDX = DAC_PULSE_LEN;
+// Default peak index to return when peak detection fails (Value: 8)
+constexpr int DEFAULT_PEAK_IDX = 8;
 
 // Reference peak index to align signal to (Value: 1)
 constexpr int REF_PEAK_IDX = 1;
@@ -190,8 +190,42 @@ constexpr uint32_t WIFI_CONNECT_TIMEOUT_LIMIT = 10000 / WIFI_CONNECT_DELAY_MS;
 // Delay in milliseconds for ARP resolution before sending UDP packets (Value: 300)
 constexpr uint32_t WIFI_ARP_DELAY_MS = 300;
 
-// Delay in microseconds between UDP packets to control transmission pacing (Value: 250)
-constexpr uint32_t UDP_PACE_DELAY_US = 250;
+// Delay in microseconds between UDP packets to control transmission pacing (Value: 500)
+constexpr uint32_t UDP_PACE_DELAY_US = 500;
+
+// --- Target Physical Parameters & Calculations ---
+// ADC reference voltage in Volts (Value: 3.3f)
+constexpr float ADC_REF_VOLTS = 3.3f;
+
+// --- Signal Processing & Synchronization Settings ---
+// Target voltage threshold for synchronization peak detection in Volts (Value: 1.3f)
+constexpr float SYNC_THRESHOLD_VOLTS = 1.3f;
+
+// Sync threshold represented in Q15 format, dynamically calculated (Value: 25809)
+constexpr int16_t THRESHOLD_SYNC = static_cast<int16_t>((SYNC_THRESHOLD_VOLTS / (ADC_REF_VOLTS / 2.0f)) * Q15_MAX);
+
+// Length of samples in the search window at start of frame to detect t0 peak (Value: 20)
+constexpr int SYNC_SEARCH_LEN = 20;
+
+// Padding samples added to the start and end of DAC pulse buffers to stabilize DAC output (Value: 4)
+constexpr size_t DAC_PULSE_PADDING = 4;
+constexpr size_t DAC_PULSE_TOTAL_PADDING = 2 * DAC_PULSE_PADDING;
+
+// Delay in microseconds after stopping I2S/ADC to allow hardware transient settling (Value: 50)
+constexpr uint32_t ADC_STOP_STABILIZATION_US = 50;
+
+// Delay in milliseconds to hold CPU when UDP transmission fails due to LwIP memory overflow (Value: 2)
+constexpr uint32_t UDP_BACKPRESSURE_DELAY_MS = 2;
+
+// UDP downsampling divider to send every N-th frame to SonarViewer (Value: 3)
+constexpr uint32_t UDP_SEND_DIVIDER = 3;
+
+// Receiver channel identifier used when transmitting UDP frame (Value: 1)
+constexpr uint8_t RX_CHANNEL_1_ID = 1;
+
+// Cutoff coefficients for 1-pole sample-to-sample IIR smoothing filter (Value: 0.90f / 0.10f)
+constexpr float SIGNAL_SMOOTH_ALPHA = 0.90f;
+constexpr float SIGNAL_SMOOTH_BETA = 1.0f - SIGNAL_SMOOTH_ALPHA;
 
 // --- Network Communication Settings ---
 // Default UDP port used for network communication (Value: 8080)
@@ -217,9 +251,6 @@ constexpr uint32_t TASK_PRIORITY = 10;
 constexpr uint32_t LOOP_DELAY_MS = 1000;
 
 // --- Target Physical Parameters & Calculations ---
-// ADC reference voltage in Volts (Value: 3.3f)
-constexpr float ADC_REF_VOLTS = 3.3f;
-
 // Gain restoration factor to scale Q15 amplitude values (Value: 1024.0f)
 constexpr float GAIN_RESTORATION_FACTOR = 1024.0f;
 

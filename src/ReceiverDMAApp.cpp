@@ -7,6 +7,61 @@ void ReceiverDMAApp::init() {
     // Buffers or additional setup if needed
 }
 
+int16_t ReceiverDMAApp::calculateDcBias() {
+    int32_t sum = 0;
+    for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
+        _raw_adc_buffer[i] &= Constant::ADC_RESOLUTION_MAX;
+        sum += _raw_adc_buffer[i];
+    }
+    return sum >> Constant::ADC_SAMPLES_SHIFT;
+}
+
+void ReceiverDMAApp::processRawBuffer(int16_t mean) {
+    for (int i = 0; i < Constant::JITTER_WINDOW_LEN; ++i) {
+        int32_t centered = ((int32_t)_raw_adc_buffer[i] - mean) << Constant::Q15_SCALE_SHIFT;
+        _send_adc_buffer[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
+    }
+}
+
+void ReceiverDMAApp::applyIirFilter() {
+    static int16_t temp_smooth[Constant::ADC_SAMPLES];
+    temp_smooth[0] = _send_adc_buffer[0];
+    for (int i = 1; i < Constant::ADC_SAMPLES; ++i) {
+        temp_smooth[i] = (int16_t)(Constant::SIGNAL_SMOOTH_ALPHA * (float)_send_adc_buffer[i] + 
+                                     Constant::SIGNAL_SMOOTH_BETA * (float)temp_smooth[i - 1]);
+    }
+    memcpy(_send_adc_buffer, temp_smooth, Constant::ADC_SAMPLES * sizeof(int16_t));
+}
+
+int ReceiverDMAApp::findSyncPeak() {
+    int peak_idx = -1;
+    // Bắt đầu từ i = 2 để bỏ qua hoàn toàn gai nhiễu chuyển mạch ban đầu (0-1).
+    for (int i = 2; i < Constant::SYNC_SEARCH_LEN; ++i) {
+        if (_send_adc_buffer[i] > Constant::THRESHOLD_SYNC) {
+            peak_idx = i;
+            break; // Tìm thấy mẫu đầu tiên thì dừng ngay
+        }
+    }
+    return peak_idx;
+}
+
+void ReceiverDMAApp::shiftSignal(int shift) {
+    if (shift > 0) {
+        // Dịch trái
+        for (size_t i = 0; i < Constant::ADC_SAMPLES - shift; ++i) {
+            _send_adc_buffer[i] = _send_adc_buffer[i + shift];
+        }
+        memset(&_send_adc_buffer[Constant::ADC_SAMPLES - shift], 0, shift * sizeof(int16_t));
+    } else {
+        // Dịch phải (shift <= 0)
+        int rshift = -shift;
+        for (int i = (int)Constant::ADC_SAMPLES - 1; i >= rshift; --i) {
+            _send_adc_buffer[i] = _send_adc_buffer[i - rshift];
+        }
+        memset(_send_adc_buffer, 0, rshift * sizeof(int16_t));
+    }
+}
+
 void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs) {
     uint64_t start_time = esp_timer_get_time();
     size_t bytes_read = 0;
@@ -15,75 +70,32 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
     uint64_t elapsed_time = esp_timer_get_time() - start_time;
 
     if (res == ESP_OK && bytes_read == sizeof(_raw_adc_buffer)) {
-        // Tính toán tần số lấy mẫu thực tế dựa trên thời gian thực tế thu nhận
         double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
 
-        // Tính giá trị trung bình (DC bias) của buffer thô
-        int32_t sum = 0;
-        for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
-            // Mask lấy 12-bit từ dữ liệu đọc được từ I2S
-            _raw_adc_buffer[i] &= Constant::ADC_RESOLUTION_MAX;
-            sum += _raw_adc_buffer[i];
-        }
-        // Tối ưu hóa phép chia cho 2048 bằng phép dịch bit phải 11
-        int16_t mean = sum >> Constant::ADC_SAMPLES_SHIFT;
+        // 1. Tính DC Bias và chuẩn hóa raw buffer
+        int16_t mean = calculateDcBias();
+        processRawBuffer(mean);
 
-        // Chỉ cần chuẩn hóa cửa sổ đầu tiên để tìm đỉnh cục bộ phục vụ căn chỉnh
-        for (int i = 0; i < Constant::JITTER_WINDOW_LEN; ++i) {
-            int32_t centered = ((int32_t)_raw_adc_buffer[i] - mean) << Constant::Q15_SCALE_SHIFT;
-            _send_adc_buffer[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
-        }
+        // 2. Áp dụng bộ lọc làm mịn IIR thông thấp dọc theo mẫu
+        applyIirFilter();
 
-        // Đồng bộ hóa phần mềm để loại bỏ jitter:
-        // 1. Tìm giá trị dương lớn nhất trong cửa sổ rộng (bỏ qua mẫu 0, 1) để làm mốc biên độ
-        volatile int16_t max_val = 0;
-        for (int i = 2; i < Constant::JITTER_WINDOW_LEN; ++i) {
-            int16_t val = _send_adc_buffer[i];
-            if (val > max_val) {
-                max_val = val;
+        // 3. Quét trong SYNC_SEARCH_LEN mẫu đầu tiên để tìm t0 peak
+        int peak_idx = findSyncPeak();
+
+        // 4. Nếu không tìm thấy, hủy bỏ và bỏ qua frame
+        if (peak_idx == -1) {
+            static uint32_t dropCount = 0;
+            dropCount++;
+            if (dropCount % 50 == 0) {
+                Serial.printf("[SYNC] Cảnh báo: Không tìm thấy đỉnh đồng bộ > %.1fV trong %d mẫu đầu. Đã bỏ qua %u xung.\n", 
+                              Constant::SYNC_THRESHOLD_VOLTS, Constant::SYNC_SEARCH_LEN, dropCount);
             }
+            return;
         }
 
-        // 2. Tìm đỉnh cục bộ dương ĐẦU TIÊN vượt quá 45% của max_val để tránh hiện tượng nhảy chu kỳ (cycle jumping)
-        volatile int peak_idx = Constant::DEFAULT_PEAK_IDX; // Mặc định nếu không tìm thấy
-        volatile int16_t threshold = (max_val * Constant::PEAK_THRESHOLD_PERCENT) / 100;
-        for (int i = 2; i < Constant::JITTER_WINDOW_LEN - 2; ++i) {
-            int16_t val = _send_adc_buffer[i];
-            if (val >= threshold && val >= _send_adc_buffer[i - 1] && val >= _send_adc_buffer[i + 1]) {
-                peak_idx = i;
-                break; // Lấy đỉnh cục bộ đầu tiên thỏa mãn
-            }
-        }
-
-        // 3. Điểm căn chỉnh tham chiếu và tính toán độ dịch (shift)
-        const int REF_PEAK_IDX = Constant::REF_PEAK_IDX;
-        volatile int shift = peak_idx - REF_PEAK_IDX;
-
-        // Giới hạn dịch chuyển để tránh lỗi mảng
-        if (shift > Constant::MAX_ALLOWED_SHIFT)
-            shift = Constant::MAX_ALLOWED_SHIFT;
-        if (shift < -Constant::MAX_ALLOWED_SHIFT)
-            shift = -Constant::MAX_ALLOWED_SHIFT;
-
-        // 4. Căn chỉnh lại mảng tín hiệu và điền 0 vào phần trống để đảm bảo luôn đủ 2048 mẫu.
-        if (shift > 0) {
-            // Dịch trái
-            for (size_t i = 0; i < Constant::ADC_SAMPLES - shift; ++i) {
-                int32_t centered = ((int32_t)_raw_adc_buffer[i + shift] - mean) << Constant::Q15_SCALE_SHIFT;
-                _send_adc_buffer[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
-            }
-            // Xóa nhanh vùng cuối mảng bằng memset
-            memset(&_send_adc_buffer[Constant::ADC_SAMPLES - shift], 0, shift * sizeof(int16_t));
-        } else {
-            // Dịch phải (shift <= 0)
-            int rshift = -shift;
-            for (int i = (int)Constant::ADC_SAMPLES - 1; i >= rshift; --i) {
-                int32_t centered = ((int32_t)_raw_adc_buffer[i - rshift] - mean) << Constant::Q15_SCALE_SHIFT;
-                _send_adc_buffer[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
-            }
-            // Xóa nhanh vùng đầu mảng bằng memset
-            memset(_send_adc_buffer, 0, rshift * sizeof(int16_t));
-        }
+        // 5. Tính toán độ dịch và dịch chuyển tín hiệu
+        volatile int shift = peak_idx - 1;
+        shiftSignal(shift);
 
         static uint32_t loopCount = 0;
         loopCount++;
@@ -92,8 +104,14 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
                           priMs, Constant::ADC_SAMPLES, fs_actual / 1000.0, elapsed_time);
         }
 
-        // Gửi dữ liệu qua giao thức UDP của ComManager đến SonarViewer dưới định dạng kênh Rx1 (receiverId = 1)
-        com.sendFrame(frameId++, _send_adc_buffer, Constant::ADC_SAMPLES, 1);
+        // 6. Gửi dữ liệu qua UDP
+        static uint32_t sendCount = 0;
+        sendCount++;
+        if (sendCount % Constant::UDP_SEND_DIVIDER == 0) {
+            com.sendFrameAsync(frameId++, _send_adc_buffer, Constant::ADC_SAMPLES, Constant::RX_CHANNEL_1_ID);
+        } else {
+            frameId++;
+        }
     } else {
         Serial.printf("Lỗi đọc I2S: %d, số bytes đọc được: %u\n", res, bytes_read);
     }

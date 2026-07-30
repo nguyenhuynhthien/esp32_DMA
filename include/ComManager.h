@@ -56,7 +56,7 @@ private:
 
     struct QueuedFrame {
         uint16_t frameId;
-        const int16_t* samples;
+        int16_t samples[Constant::ADC_SAMPLES];
         uint8_t receiverId;
         volatile bool ready;
     };

@@ -15,6 +15,12 @@ private:
     AdcDMAService& _adcService;
     uint16_t _raw_adc_buffer[Constant::ADC_SAMPLES];
     int16_t _send_adc_buffer[Constant::ADC_SAMPLES];
+
+    int16_t calculateDcBias();
+    void processRawBuffer(int16_t mean);
+    void applyIirFilter();
+    int findSyncPeak();
+    void shiftSignal(int shift);
 };
 
 #endif // RECEIVER_DMA_APP_HPP

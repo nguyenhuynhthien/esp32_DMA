@@ -1,4 +1,6 @@
 #include "AdcDMASignal.hpp"
+#include <soc/i2s_struct.h>
+#include <soc/i2s_reg.h>
 
 AdcDMASignal::AdcDMASignal() {}
 
@@ -34,15 +36,16 @@ void AdcDMASignal::init() {
         Serial.printf("Lỗi cấu hình kênh ADC cho I2S: %d\n", err);
     }
 
-    err = i2s_adc_enable(I2S_NUM_0);
-    if (err != ESP_OK) {
-        Serial.printf("Lỗi kích hoạt I2S ADC: %d\n", err);
-    }
-
     Serial.println("Cấu hình ADC I2S DMA hoàn tất.");
 }
 
 void IRAM_ATTR AdcDMASignal::start() {
+    // Reset RX FIFO và RX DMA phần cứng để tránh hoàn toàn lệch byte (byte swap)
+    I2S0.conf.rx_fifo_reset = 1;
+    I2S0.conf.rx_fifo_reset = 0;
+    I2S0.lc_conf.in_rst = 1;
+    I2S0.lc_conf.in_rst = 0;
+
     i2s_start(I2S_NUM_0);
     i2s_adc_enable(I2S_NUM_0);
 }
