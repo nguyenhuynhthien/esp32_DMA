@@ -37,6 +37,11 @@ void AdcDMASignal::init() {
     }
 
     Serial.println("Cấu hình ADC I2S DMA hoàn tất.");
+    Serial.printf("[I2S0 CLOCK] clkm_div_num: %d, clkm_div_b: %d, clkm_div_a: %d, clka_en: %d\n",
+                  I2S0.clkm_conf.clkm_div_num,
+                  I2S0.clkm_conf.clkm_div_b,
+                  I2S0.clkm_conf.clkm_div_a,
+                  I2S0.clkm_conf.clka_en);
 }
 
 void IRAM_ATTR AdcDMASignal::start() {

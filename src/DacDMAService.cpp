@@ -6,6 +6,6 @@ void DacDMAService::init() {
     _dacSignal.init();
 }
 
-void IRAM_ATTR DacDMAService::transmitPulse(const uint8_t* pulse, size_t length) {
-    _dacSignal.firePulse(pulse, length);
+uint32_t IRAM_ATTR DacDMAService::transmitPulse(const uint8_t* pulse, size_t length) {
+    return _dacSignal.firePulse(pulse, length);
 }

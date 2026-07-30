@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-// #define SHOW_SAMPLING_LOG
+#define SHOW_SAMPLING_LOG
 
 namespace Constant {
 // --- Base Sonar & DSP Parameters ---

@@ -62,12 +62,16 @@ void ReceiverDMAApp::shiftSignal(int shift) {
     }
 }
 
-void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs, double txPriMs, double txFsKhz) {
-    uint64_t start_time = esp_timer_get_time();
+void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs, double txPriMs, double txFsKhz, uint64_t adcStartTime) {
+#ifdef SHOW_SAMPLING_LOG
+    uint64_t start_time = (adcStartTime != 0) ? adcStartTime : esp_timer_get_time();
+#endif
     size_t bytes_read = 0;
 
     esp_err_t res = _adcService.readSamples(_raw_adc_buffer, sizeof(_raw_adc_buffer), bytes_read);
-    uint64_t elapsed_time = esp_timer_get_time() - start_time;
+#ifdef SHOW_SAMPLING_LOG
+    uint64_t elapsed_time = (adcStartTime != 0 || start_time != 0) ? (esp_timer_get_time() - start_time) : 0;
+#endif
 
 #ifdef SHOW_SAMPLING_LOG
     static uint64_t last_rx_start_time = 0;

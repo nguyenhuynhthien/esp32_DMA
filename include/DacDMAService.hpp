@@ -7,7 +7,7 @@ class DacDMAService {
 public:
     DacDMAService(DacDMASignal& dacSignal);
     void init();
-    void IRAM_ATTR transmitPulse(const uint8_t* pulse, size_t length);
+    uint32_t IRAM_ATTR transmitPulse(const uint8_t* pulse, size_t length);
 
 private:
     DacDMASignal& _dacSignal;

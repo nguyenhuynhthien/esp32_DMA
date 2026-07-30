@@ -20,6 +20,11 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 
     // 2. Khởi động lại ADC DMA (chu kỳ mới, SyncTask sở hữu Mutex từ đây)
     _adcService.start();
+#ifdef SHOW_SAMPLING_LOG
+    uint64_t adc_start_time = esp_timer_get_time();
+#else
+    uint64_t adc_start_time = 0;
+#endif
 
     // 3. Đọc loại xung
     ComManager::PulseType pulseType = com.getPulseType();
@@ -35,23 +40,26 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
     }
     last_tx_time = current_tx_time;
 
-    uint32_t tx_elapsed_us = _transmitterApp.transmit(pulseType);
+    uint32_t tx_cycles = _transmitterApp.transmit(pulseType);
     
     // Tính số lượng mẫu phát
     size_t tx_len = (pulseType == ComManager::PULSE_SINGLE) 
                     ? (Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING)
                     : (Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING);
     
+    // Đổi chu kỳ CPU sang us
+    double tx_elapsed_us = (double)tx_cycles / (double)ESP.getCpuFreqMHz();
+
     // Tx Fs = Số mẫu * 1000.0 / Thời gian phát (kHz)
     double tx_fs_khz = 0.0;
     if (tx_elapsed_us > 0) {
-        tx_fs_khz = (double)tx_len * 1000.0 / (double)tx_elapsed_us;
+        tx_fs_khz = (double)tx_len * 1000.0 / tx_elapsed_us;
     }
 
     // 6. Nhận và xử lý dữ liệu từ ADC DMA
-    _receiverApp.receiveAndProcess(com, frameId, priMs, tx_pri_ms, tx_fs_khz);
+    _receiverApp.receiveAndProcess(com, frameId, priMs, tx_pri_ms, tx_fs_khz, adc_start_time);
 #else
     _transmitterApp.transmit(pulseType);
-    _receiverApp.receiveAndProcess(com, frameId, priMs, 0.0, 0.0);
+    _receiverApp.receiveAndProcess(com, frameId, priMs, 0.0, 0.0, adc_start_time);
 #endif
 }
