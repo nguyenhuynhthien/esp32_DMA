@@ -24,9 +24,34 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
     // 3. Đọc loại xung
     ComManager::PulseType pulseType = com.getPulseType();
 
-    // 4. Phát DAC đồng bộ ngay lập tức (không dùng critical section chặn ngắt để tránh làm nghẽn ngắt DMA của ADC)
-    _transmitterApp.transmit(pulseType);
+    // 4. Phát DAC đồng bộ ngay lập tức và đo thời gian phát (us)
+#ifdef SHOW_SAMPLING_LOG
+    // Đo Tx PRI
+    static uint64_t last_tx_time = 0;
+    uint64_t current_tx_time = esp_timer_get_time();
+    double tx_pri_ms = 0.0;
+    if (last_tx_time != 0) {
+        tx_pri_ms = (double)(current_tx_time - last_tx_time) / 1000.0;
+    }
+    last_tx_time = current_tx_time;
 
-    // 4. Nhận và xử lý dữ liệu từ ADC DMA
-    _receiverApp.receiveAndProcess(com, frameId, priMs);
+    uint32_t tx_elapsed_us = _transmitterApp.transmit(pulseType);
+    
+    // Tính số lượng mẫu phát
+    size_t tx_len = (pulseType == ComManager::PULSE_SINGLE) 
+                    ? (Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING)
+                    : (Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING);
+    
+    // Tx Fs = Số mẫu * 1000.0 / Thời gian phát (kHz)
+    double tx_fs_khz = 0.0;
+    if (tx_elapsed_us > 0) {
+        tx_fs_khz = (double)tx_len * 1000.0 / (double)tx_elapsed_us;
+    }
+
+    // 6. Nhận và xử lý dữ liệu từ ADC DMA
+    _receiverApp.receiveAndProcess(com, frameId, priMs, tx_pri_ms, tx_fs_khz);
+#else
+    _transmitterApp.transmit(pulseType);
+    _receiverApp.receiveAndProcess(com, frameId, priMs, 0.0, 0.0);
+#endif
 }

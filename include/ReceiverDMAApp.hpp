@@ -9,7 +9,7 @@ class ReceiverDMAApp {
 public:
     ReceiverDMAApp(AdcDMAService& adcService);
     void init();
-    void receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs);
+    void receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs, double txPriMs = 0.0, double txFsKhz = 0.0);
 
 private:
     AdcDMAService& _adcService;

@@ -62,27 +62,38 @@ void ReceiverDMAApp::shiftSignal(int shift) {
     }
 }
 
-void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs) {
+void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs, double txPriMs, double txFsKhz) {
     uint64_t start_time = esp_timer_get_time();
     size_t bytes_read = 0;
 
     esp_err_t res = _adcService.readSamples(_raw_adc_buffer, sizeof(_raw_adc_buffer), bytes_read);
     uint64_t elapsed_time = esp_timer_get_time() - start_time;
 
-    if (res == ESP_OK && bytes_read == sizeof(_raw_adc_buffer)) {
-        double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
+#ifdef SHOW_SAMPLING_LOG
+    static uint64_t last_rx_start_time = 0;
+    uint64_t current_rx_start_time = esp_timer_get_time();
+    double rx_pri_ms = 0.0;
+    if (last_rx_start_time != 0) {
+        rx_pri_ms = (double)(current_rx_start_time - last_rx_start_time) / 1000.0;
+    }
+    last_rx_start_time = current_rx_start_time;
+#endif
 
-        // 1. Tính DC Bias và chuẩn hóa raw buffer
+    if (res == ESP_OK && bytes_read == sizeof(_raw_adc_buffer)) {
+#ifdef SHOW_SAMPLING_LOG
+        double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
+#endif
+
+        // 1. DC bias & normalization...
         int16_t mean = calculateDcBias();
         processRawBuffer(mean);
 
-        // 2. Áp dụng bộ lọc làm mịn IIR thông thấp dọc theo mẫu
+        // 2. IIR...
         applyIirFilter();
 
-        // 3. Quét trong SYNC_SEARCH_LEN mẫu đầu tiên để tìm t0 peak
+        // 3. Peak...
         int peak_idx = findSyncPeak();
 
-        // 4. Nếu không tìm thấy, hủy bỏ và bỏ qua frame
         if (peak_idx == -1) {
             static uint32_t dropCount = 0;
             dropCount++;
@@ -93,15 +104,16 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
             return;
         }
 
-        // 5. Tính toán độ dịch và dịch chuyển tín hiệu
         volatile int shift = peak_idx - 1;
         shiftSignal(shift);
 
         static uint32_t loopCount = 0;
         loopCount++;
         if (loopCount % 50 == 0) {
-            Serial.printf("[LOG] PRI: %.2f ms | Số mẫu: %u | Tần số lấy mẫu thực tế: %.2f kHz (Đọc trong %llu us)\n",
-                          priMs, Constant::ADC_SAMPLES, fs_actual / 1000.0, elapsed_time);
+#ifdef SHOW_SAMPLING_LOG
+            Serial.printf("[LOG] Tx PRI: %.2f ms | Tx Fs: %.2f kHz | Rx PRI: %.2f ms | Rx Fs: %.2f kHz (Đọc trong %llu us)\n",
+                          txPriMs, txFsKhz, rx_pri_ms, fs_actual / 1000.0, elapsed_time);
+#endif
         }
 
         // 6. Gửi dữ liệu qua UDP
