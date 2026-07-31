@@ -36,6 +36,7 @@ public:
     float getTxGain() const { return _txGain; }
     bool isTxEnabled() const { return _isTxEnabled; }
     int getTargetServoAngle();
+    uint8_t getSelectedRxChannel() const { return _selectedRxChannel; }
 
 private:
     const char* _ssid;
@@ -53,6 +54,7 @@ private:
     float _txGain;
     bool _isTxEnabled;
     volatile int _targetServoAngle;
+    volatile uint8_t _selectedRxChannel;
 
     struct QueuedFrame {
         uint16_t frameId;

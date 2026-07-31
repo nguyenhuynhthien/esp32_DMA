@@ -5,7 +5,7 @@ ComManager::ComManager(const char *ssid, const char *password,
     : _ssid(ssid), _password(password), _hostName(hostName), _port(port),
       _remotePort(0), _isStreaming(false), _pulseType(PULSE_SINGLE),
       _isServoEnabled(false), _streamMode(STREAM_RAW), _txGain(1.0f),
-      _isTxEnabled(false), _targetServoAngle(-1)
+      _isTxEnabled(false), _targetServoAngle(-1), _selectedRxChannel(0)
 #ifdef SHOW_COMM_LOG
       , _statsFramesAttempted(0), _statsFramesSent(0), _statsFramesDropped(0),
       _statsChunksSent(0), _statsChunksFailed(0), _statsTotalSendTimeUs(0),
@@ -119,6 +119,12 @@ void ComManager::update() {
           Serial.printf("Tx attenuation: -%d dB (gain: %.4f)\n", attenDb,
                         _txGain);
         }
+      } else if (strncmp(command, "rx_select:", 10) == 0) {
+        int rxChan = atoi(command + 10);
+        if (rxChan >= 0 && rxChan <= 2) {
+          _selectedRxChannel = rxChan;
+          Serial.printf("UDP select Rx channel: Rx %d\n", rxChan);
+        }
       } else if (strcmp(command, "tx:on") == 0) {
         _isTxEnabled = true;
         Serial.println("Tx Enabled");
@@ -154,7 +160,7 @@ bool ComManager::isStreaming() { return _isStreaming; }
 
 void ComManager::sendFrame(uint16_t frameId, const int16_t *samples,
                            size_t size, uint8_t receiverId) {
-  if (!_isStreaming || size != Constant::ADC_SAMPLES) {
+  if (!_isStreaming || size != Constant::ADC_SAMPLES || receiverId != _selectedRxChannel) {
     return;
   }
 
@@ -240,7 +246,7 @@ void ComManager::sendTarget(float range, uint16_t angle, float strength,
 
 void ComManager::sendFrameAsync(uint16_t frameId, const int16_t *samples,
                                 size_t size, uint8_t receiverId) {
-  if (!_isStreaming || size != Constant::ADC_SAMPLES) {
+  if (!_isStreaming || size != Constant::ADC_SAMPLES || receiverId != _selectedRxChannel) {
     return;
   }
 
