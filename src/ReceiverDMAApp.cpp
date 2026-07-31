@@ -140,13 +140,6 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
 #ifdef SHOW_SAMPLING_LOG
     // Tính toán tần số lấy mẫu thực tế dựa trên thời gian thực tế thu nhận
     double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
-
-    uint64_t current_rx_start_time = esp_timer_get_time();
-    double rx_pri_ms = 0.0;
-    if (_last_rx_start_time != 0) {
-        rx_pri_ms = (double)(current_rx_start_time - _last_rx_start_time) / 1000.0;
-    }
-    _last_rx_start_time = current_rx_start_time;
 #endif
 
     // 1. DC bias & normalization
@@ -177,7 +170,7 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
     _loopCount++;
     if (_loopCount % 50 == 0) {
         Serial.printf("[LOG RX%d] Tx PRI: %.2f ms | Tx Fs: %.2f kHz | Rx PRI: %.2f ms | Rx Fs: %.2f kHz (Đọc trong %llu us)\n",
-                      _receiverId, txPriMs, txFsKhz, rx_pri_ms, fs_actual / 1000.0, elapsed_time);
+                      _receiverId, txPriMs, txFsKhz, priMs, fs_actual / 1000.0, elapsed_time);
     }
 #endif
 

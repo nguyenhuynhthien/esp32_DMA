@@ -25,7 +25,6 @@ private:
     void shiftSignal(int shift);
 
 #ifdef SHOW_SAMPLING_LOG
-    uint64_t _last_rx_start_time = 0;
     uint32_t _loopCount = 0;
     uint32_t _dropCount = 0;
 #endif

@@ -96,17 +96,13 @@ void setup() {
 
             syncApp.runIteration(com, frameId, pri_ms);
 
-            // Bù trễ để ổn định chu kỳ PRI
+            // Bù trễ chính xác cao bằng delayMicroseconds để ổn định chu kỳ PRI cố định
             uint64_t elapsed_us = esp_timer_get_time() - start_time;
             uint64_t target_us = (uint64_t)(target_pri * 1000.0);
             if (elapsed_us < target_us) {
-              uint64_t wait_us = target_us - elapsed_us;
-              if (wait_us >= 2000) {
-                vTaskDelay(pdMS_TO_TICKS(wait_us / 1000));
-              } else {
-                delayMicroseconds(wait_us);
-              }
+              delayMicroseconds(target_us - elapsed_us);
             } else {
+              // Nếu bị lố thời gian (quá tải), nhường CPU một chút để tránh Watchdog Trigger
               vTaskDelay(0);
             }
           } else {
