@@ -1,5 +1,9 @@
 #include "SimulatorDMAApp.hpp"
 
+// Khởi tạo các biến tĩnh
+int16_t SimulatorDMAApp::_sin_lut[SimulatorDMAApp::SIN_LUT_SIZE];
+bool SimulatorDMAApp::_sin_lut_initialized = false;
+
 SimulatorDMAApp::SimulatorDMAApp() : _noise_idx(0) {}
 
 void SimulatorDMAApp::init() {
@@ -10,6 +14,15 @@ void SimulatorDMAApp::init() {
         float u2 = static_cast<float>(random(1, 10000)) / 10000.0f;
         float noise = sqrtf(-2.0f * logf(u1)) * cosf(2.0f * PI * u2) * sigma;
         _noise_table[i] = static_cast<int16_t>(constrain(static_cast<int32_t>(noise), Constant::Q15_MIN, Constant::Q15_MAX));
+    }
+
+    // Sinh sẵn bảng Sine Q15 LUT (chỉ thực hiện một lần duy nhất)
+    if (!_sin_lut_initialized) {
+        for (size_t i = 0; i < SIN_LUT_SIZE; ++i) {
+            float angle = (2.0f * PI * i) / SIN_LUT_SIZE;
+            _sin_lut[i] = static_cast<int16_t>(sinf(angle) * Constant::Q15_MAX);
+        }
+        _sin_lut_initialized = true;
     }
 }
 
@@ -53,6 +66,11 @@ void SimulatorDMAApp::injectSimulationQ15(int16_t* sendBuffer, size_t size, ComM
     const int8_t BARKER_CODE[13] = {1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1};
     float amplitude = 10000.0f; // Tăng biên độ suy hao của xung echo mô phỏng lên 10000 (~30% dải Q15_MAX)
 
+    // Khởi tạo bộ tích lũy pha góc số nguyên 32-bit (0 tương ứng 0, 2^32 tương ứng 2*PI)
+    // d_phase (mỗi mẫu tăng lên) = PI/2 + theta_d
+    uint32_t phase_step = static_cast<uint32_t>((((PI / 2.0f) + theta_d) / (2.0f * PI)) * 4294967296.0f);
+    uint32_t current_phase_int = static_cast<uint32_t>((initial_phase / (2.0f * PI)) * 4294967296.0f);
+
     for (size_t i = 0; i < pulse_len; ++i) {
         size_t target_idx = Constant::SIMULATOR_DELAY_SAMPLES + i;
         if (target_idx >= size) {
@@ -75,11 +93,13 @@ void SimulatorDMAApp::injectSimulationQ15(int16_t* sendBuffer, size_t size, ComM
             env = static_cast<float>(pulse_len - 1 - i) / static_cast<float>(ramp_len);
         }
 
-        // Tính pha tức thời: i * pi/2 + i * theta_d + initial_phase
-        float phase = static_cast<float>(i) * (PI / 2.0f) + static_cast<float>(i) * theta_d + initial_phase;
+        // Đọc giá trị sine từ bảng tra cứu
+        size_t lut_idx = (current_phase_int >> (32 - 8)) & 0xFF; // dịch 24 bit để lấy 8 bit cao tương đương LUT 256
+        int16_t sin_val_q15 = _sin_lut[lut_idx];
+        current_phase_int += phase_step;
         
-        // Tạo xung mô phỏng dạng Q15 sử dụng hàm sinf() tối ưu cho hardware FPU của ESP32
-        int32_t sim_val_q15 = static_cast<int32_t>(amplitude * env * code_val * sinf(phase));
+        // Tạo xung mô phỏng dạng Q15 loại bỏ hoàn toàn lượng giác float sinf()
+        int32_t sim_val_q15 = static_cast<int32_t>((amplitude * env * code_val * sin_val_q15) / 32768.0f);
 
         // Cộng vào buffer Q15 đã đồng bộ
         int32_t current_val = sendBuffer[target_idx];
