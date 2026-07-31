@@ -276,6 +276,10 @@ constexpr uint8_t RX_CHANNEL_1_ID = 1;
 constexpr float SIGNAL_SMOOTH_ALPHA = 0.90f;
 constexpr float SIGNAL_SMOOTH_BETA = 1.0f - SIGNAL_SMOOTH_ALPHA;
 
+// Hệ số IIR dạng Q15 để tối ưu hóa tính toán số nguyên
+constexpr int16_t SIGNAL_SMOOTH_ALPHA_Q15 = 29491; // 0.90 * 32768
+constexpr int16_t SIGNAL_SMOOTH_BETA_Q15 = 3277;   // 0.10 * 32768
+
 // --- Network Communication Settings ---
 // Default UDP port used for network communication (Value: 8080)
 constexpr uint16_t DEFAULT_PORT = 8080;

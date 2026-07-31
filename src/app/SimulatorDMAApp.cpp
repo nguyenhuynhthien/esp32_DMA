@@ -21,7 +21,8 @@ void SimulatorDMAApp::injectSimulationQ15(int16_t* sendBuffer, size_t size, ComM
     }
 
     // 1. Tiêm nhiễu Gauss bằng cách lấy mẫu tuần hoàn từ bảng nhiễu đã sinh sẵn (tối ưu hóa tốc độ cực đại)
-    size_t start_idx = random(0, NOISE_TABLE_SIZE);
+    static size_t start_idx = 0;
+    start_idx = (start_idx + 17) % NOISE_TABLE_SIZE;
     for (size_t i = 0; i < size; ++i) {
         int32_t val = sendBuffer[i] + _noise_table[(start_idx + i) % NOISE_TABLE_SIZE];
         sendBuffer[i] = static_cast<int16_t>(constrain(val, Constant::Q15_MIN, Constant::Q15_MAX));

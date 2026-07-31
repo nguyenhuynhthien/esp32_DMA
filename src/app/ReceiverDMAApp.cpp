@@ -9,27 +9,42 @@ void ReceiverDMAApp::init() {
 }
 
 int16_t ReceiverDMAApp::calculateDcBias() {
-    int32_t sum = 0;
-    for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
-        _raw_adc_buffer[i] &= Constant::ADC_RESOLUTION_MAX;
-        sum += _raw_adc_buffer[i];
+    static int16_t cached_bias = 2048;
+    static int frame_count = 0;
+    if (frame_count++ % 64 == 0) {
+        int32_t sum = 0;
+        for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
+            _raw_adc_buffer[i] &= Constant::ADC_RESOLUTION_MAX;
+            sum += _raw_adc_buffer[i];
+        }
+        cached_bias = sum >> Constant::ADC_SAMPLES_SHIFT;
     }
-    return sum >> Constant::ADC_SAMPLES_SHIFT;
+    return cached_bias;
 }
 
 void ReceiverDMAApp::processRawBuffer(int16_t mean) {
+    const uint16_t* p_raw = _raw_adc_buffer;
+    int16_t* p_send = _send_adc_buffer;
     for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
-        int32_t centered = ((int32_t)_raw_adc_buffer[i] - mean) << Constant::Q15_SCALE_SHIFT;
-        _send_adc_buffer[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
+        int32_t val = (p_raw[i] & Constant::ADC_RESOLUTION_MAX) - mean;
+        int32_t centered = val << Constant::Q15_SCALE_SHIFT;
+        p_send[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
     }
 }
 
 void ReceiverDMAApp::applyIirFilter() {
     static int16_t temp_smooth[Constant::ADC_SAMPLES];
-    temp_smooth[0] = _send_adc_buffer[0];
+    const int16_t* p_send = _send_adc_buffer;
+    int16_t* p_smooth = temp_smooth;
+    
+    p_smooth[0] = p_send[0];
+    int16_t prev = p_smooth[0];
+    
     for (int i = 1; i < Constant::ADC_SAMPLES; ++i) {
-        temp_smooth[i] = (int16_t)(Constant::SIGNAL_SMOOTH_ALPHA * (float)_send_adc_buffer[i] + 
-                                     Constant::SIGNAL_SMOOTH_BETA * (float)temp_smooth[i - 1]);
+        int32_t val = ((int32_t)p_send[i] * Constant::SIGNAL_SMOOTH_ALPHA_Q15) + 
+                      ((int32_t)prev * Constant::SIGNAL_SMOOTH_BETA_Q15);
+        prev = (int16_t)(val >> 15);
+        p_smooth[i] = prev;
     }
     memcpy(_send_adc_buffer, temp_smooth, Constant::ADC_SAMPLES * sizeof(int16_t));
 }
