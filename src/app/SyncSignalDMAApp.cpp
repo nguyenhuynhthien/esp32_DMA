@@ -10,7 +10,9 @@ void SyncSignalDMAApp::init() {
 
 void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId, double priMs) {
     // 1. Dừng ADC DMA trước để đưa về trạng thái tĩnh hoàn toàn (bỏ qua chu kỳ đầu tiên)
+#ifdef SHOW_TIMING_LOG
     uint64_t t_start_stop = esp_timer_get_time();
+#endif
     static bool first_call = true;
     if (!first_call) {
         _adcService.stop();
@@ -19,9 +21,11 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
     }
     first_call = false;
 
-    // 2. Khởi động lại ADC DMA (chu kỳ mới, SyncTask sở hữu Mutex từ đây)
+    // 2. Khỏng động lại ADC DMA (chu kỳ mới, SyncTask sở hữu Mutex từ đây)
     _adcService.start();
+#ifdef SHOW_TIMING_LOG
     uint64_t stop_start_time = esp_timer_get_time() - t_start_stop;
+#endif
 
 #ifdef SHOW_SAMPLING_LOG
     uint64_t adc_start_time = esp_timer_get_time();
@@ -75,7 +79,9 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
     uint64_t elapsed_time = esp_timer_get_time() - adc_start_time;
 
     if (res == ESP_OK && bytes_read == sizeof(raw_interleaved_buffer)) {
+        #ifdef SHOW_TIMING_LOG
         uint64_t t_start_demux = esp_timer_get_time();
+        #endif
         size_t rx1_count = 0;
         size_t rx2_count = 0;
         uint8_t last_chan = 0xFF; // Để theo dõi trạng thái chuyển kênh không phụ thuộc phase
@@ -109,7 +115,9 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
         while (rx2_count < Constant::ADC_SAMPLES) {
             rx2_buffer[rx2_count++] = pad_val2;
         }
+#ifdef SHOW_TIMING_LOG
         uint64_t demux_time = esp_timer_get_time() - t_start_demux;
+#endif
 
         // Debug first 20 samples channel IDs
         static int debug_cnt = 0;
@@ -122,18 +130,28 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
         }
 
         // Xử lý dữ liệu độc lập cho từng Receiver với cùng một frameId
+#ifdef SHOW_TIMING_LOG
         uint64_t t_start_proc1 = esp_timer_get_time();
+#endif
         _receiverApp1.process(rx1_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time, &_simulatorApp);
+#ifdef SHOW_TIMING_LOG
         uint64_t proc1_time = esp_timer_get_time() - t_start_proc1;
+#endif
 
+#ifdef SHOW_TIMING_LOG
         uint64_t t_start_proc2 = esp_timer_get_time();
+#endif
         _receiverApp2.process(rx2_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time, &_simulatorApp);
+#ifdef SHOW_TIMING_LOG
         uint64_t proc2_time = esp_timer_get_time() - t_start_proc2;
+#endif
 
+#ifdef SHOW_TIMING_LOG
         if ((debug_cnt - 1) % 50 == 0) {
             Serial.printf("[TIMING] Stop-Start: %llu us | Demux: %llu us | Proc1: %llu us | Proc2: %llu us\n",
                           stop_start_time, demux_time, proc1_time, proc2_time);
         }
+#endif
 
         // Tăng frameId cho chu kỳ phát xung tiếp theo
         frameId++;

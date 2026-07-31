@@ -5,6 +5,7 @@
 
 // Define to enable ADC/DAC PRI and Fs measurement logging
 #define SHOW_SAMPLING_LOG
+#define SHOW_TIMING_LOG
 #define SHOW_COMM_LOG
 
 // Define to enable simulation mode (injects echo signal)
