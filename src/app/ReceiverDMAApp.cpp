@@ -22,13 +22,35 @@ int16_t ReceiverDMAApp::calculateDcBias() {
     return cached_bias;
 }
 
+// Hàm bão hòa số nguyên 16-bit nhanh hơn macro constrain của Arduino
+inline int16_t saturate16(int32_t val) {
+    if (val > Constant::Q15_MAX) return Constant::Q15_MAX;
+    if (val < Constant::Q15_MIN) return Constant::Q15_MIN;
+    return (int16_t)val;
+}
+
 void ReceiverDMAApp::processRawBuffer(int16_t mean) {
     const uint16_t* p_raw = _raw_adc_buffer;
     int16_t* p_send = _send_adc_buffer;
-    for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
+    
+    // Mở rộng vòng lặp (Loop Unrolling) gấp 4 lần để tối ưu hóa pipeline của CPU
+    size_t i = 0;
+    for (; i < Constant::ADC_SAMPLES - 3; i += 4) {
+        int32_t val0 = (p_raw[i] & Constant::ADC_RESOLUTION_MAX) - mean;
+        int32_t val1 = (p_raw[i+1] & Constant::ADC_RESOLUTION_MAX) - mean;
+        int32_t val2 = (p_raw[i+2] & Constant::ADC_RESOLUTION_MAX) - mean;
+        int32_t val3 = (p_raw[i+3] & Constant::ADC_RESOLUTION_MAX) - mean;
+        
+        p_send[i]   = saturate16(val0 << Constant::Q15_SCALE_SHIFT);
+        p_send[i+1] = saturate16(val1 << Constant::Q15_SCALE_SHIFT);
+        p_send[i+2] = saturate16(val2 << Constant::Q15_SCALE_SHIFT);
+        p_send[i+3] = saturate16(val3 << Constant::Q15_SCALE_SHIFT);
+    }
+    
+    // Xử lý các phần tử dư thừa còn lại (nếu tổng số mẫu không chia hết cho 4)
+    for (; i < Constant::ADC_SAMPLES; ++i) {
         int32_t val = (p_raw[i] & Constant::ADC_RESOLUTION_MAX) - mean;
-        int32_t centered = val << Constant::Q15_SCALE_SHIFT;
-        p_send[i] = (int16_t)constrain(centered, Constant::Q15_MIN, Constant::Q15_MAX);
+        p_send[i] = saturate16(val << Constant::Q15_SCALE_SHIFT);
     }
 }
 
