@@ -1,10 +1,11 @@
 #ifndef RECEIVER_DMA_APP_HPP
 #define RECEIVER_DMA_APP_HPP
 
-#include "AdcDMAService.hpp"
-#include "ComManager.h"
-#include "Constant.hpp"
+#include "service/AdcDMAService.hpp"
+#include "service/ComManager.hpp"
+#include <Constant.h>
 #include "SimulatorDMAApp.hpp"
+
 
 class ReceiverDMAApp {
 public:

@@ -118,7 +118,8 @@ constexpr int Q15_SCALE_SHIFT = Q15_SHIFT - (ADC_BITS - 1);
 // Window size in samples for locating synchronization peak (Value: 120)
 constexpr int JITTER_WINDOW_LEN = 120;
 
-// Maximum index to search for synchronization peaks to prevent cycle jumping (Value: 30)
+// Maximum index to search for synchronization peaks to prevent cycle jumping
+// (Value: 30)
 constexpr int SYNC_SEARCH_LIMIT = 30;
 
 // Percentage threshold relative to absolute max peak to identify primary peak
@@ -240,7 +241,7 @@ constexpr float ADC_REF_VOLTS = 3.3f;
 // --- Signal Processing & Synchronization Settings ---
 // Target voltage threshold for synchronization peak detection in Volts
 // (Value: 1.3f)
-constexpr float SYNC_THRESHOLD_VOLTS = 1.3f;
+constexpr float SYNC_THRESHOLD_VOLTS = 1.0f;
 
 // Sync threshold represented in Q15 format, dynamically calculated (Value:
 // 25809)

@@ -1,5 +1,5 @@
 #include "TransmitterDMAApp.hpp"
-#include "Constant.hpp"
+#include <Constant.h>
 
 TransmitterDMAApp::TransmitterDMAApp(DacDMAService& dacService) : _dacService(dacService) {}
 

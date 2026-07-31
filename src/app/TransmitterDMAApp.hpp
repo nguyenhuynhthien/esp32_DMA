@@ -1,9 +1,9 @@
 #ifndef TRANSMITTER_DMA_APP_HPP
 #define TRANSMITTER_DMA_APP_HPP
 
-#include "DacDMAService.hpp"
-#include "Constant.hpp"
-#include "ComManager.h"
+#include "service/DacDMAService.hpp"
+#include <Constant.h>
+#include "service/ComManager.hpp"
 
 class TransmitterDMAApp {
 public:

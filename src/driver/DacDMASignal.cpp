@@ -1,5 +1,5 @@
 #include "DacDMASignal.hpp"
-#include "Constant.hpp"
+#include <Constant.h>
 
 DacDMASignal::DacDMASignal() {}
 

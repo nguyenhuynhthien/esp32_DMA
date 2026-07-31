@@ -1,4 +1,4 @@
-#include "ComManager.h"
+#include "ComManager.hpp"
 
 ComManager::ComManager(const char *ssid, const char *password,
                        const char *hostName, uint16_t port)

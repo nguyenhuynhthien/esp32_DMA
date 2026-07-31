@@ -1,7 +1,7 @@
 #include "AdcDMASignal.hpp"
 #include <soc/i2s_struct.h>
 #include <soc/i2s_reg.h>
-#include "Constant.hpp"
+#include <Constant.h>
 #include "soc/syscon_struct.h"
 #include "soc/syscon_reg.h"
 

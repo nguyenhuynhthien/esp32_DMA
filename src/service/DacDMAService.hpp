@@ -1,7 +1,6 @@
 #ifndef DAC_DMA_SERVICE_HPP
 #define DAC_DMA_SERVICE_HPP
-
-#include "DacDMASignal.hpp"
+#include "driver/DacDMASignal.hpp"
 
 class DacDMAService {
 public:

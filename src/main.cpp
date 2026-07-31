@@ -1,18 +1,19 @@
 #include <Arduino.h>
-#include <ComManager.h>
-#include <Constant.hpp>
+#include <service/ComManager.hpp>
+#include <Constant.h>
 #include <ESPmDNS.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
 
-#include "AdcDMASignal.hpp"
-#include "DacDMASignal.hpp"
-#include "AdcDMAService.hpp"
-#include "DacDMAService.hpp"
-#include "TransmitterDMAApp.hpp"
-#include "ReceiverDMAApp.hpp"
-#include "SyncSignalDMAApp.hpp"
-#include "SimulatorDMAApp.hpp"
+#include "driver/AdcDMASignal.hpp"
+#include "driver/DacDMASignal.hpp"
+#include "service/AdcDMAService.hpp"
+#include "service/DacDMAService.hpp"
+#include "app/TransmitterDMAApp.hpp"
+#include "app/ReceiverDMAApp.hpp"
+#include "app/SyncSignalDMAApp.hpp"
+#include "app/SimulatorDMAApp.hpp"
+
 
 // Thông tin kết nối WiFi
 const char *ssid = "Noel";

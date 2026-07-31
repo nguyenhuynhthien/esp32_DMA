@@ -1,11 +1,11 @@
-#ifndef COM_MANAGER_H
-#define COM_MANAGER_H
+#ifndef COM_MANAGER_HPP
+#define COM_MANAGER_HPP
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <ESPmDNS.h>
-#include <Constant.hpp>
+#include <Constant.h>
 
 class ComManager {
 public:
@@ -79,4 +79,4 @@ private:
 
 
 
-#endif // COM_MANAGER_H
+#endif // COM_MANAGER_HPP
