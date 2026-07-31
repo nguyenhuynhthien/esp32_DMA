@@ -54,7 +54,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 
         uint32_t cpu_freq_mhz = ESP.getCpuFreqMHz();
         
-        uint32_t tx_cycles = _transmitterApp.transmit(pulseType);
+        uint32_t tx_cycles = _transmitterApp.transmit(pulseType, com.getTxGain());
         
         // Tính số lượng mẫu phát
         size_t tx_len = (pulseType == ComManager::PULSE_SINGLE) 
@@ -71,7 +71,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
     }
 #else
     if (txEnabled) {
-        _transmitterApp.transmit(pulseType);
+        _transmitterApp.transmit(pulseType, com.getTxGain());
     }
 #endif
 

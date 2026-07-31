@@ -30,6 +30,21 @@ inline int16_t saturate16(int32_t val) {
 void ReceiverDMAApp::processRawBuffer(int16_t mean) {
     const uint16_t* p_raw = _raw_adc_buffer;
     int16_t* p_send = _send_adc_buffer;
+
+#ifdef SHOW_SAMPLING_LOG
+    // Tìm Min/Max thô để chẩn đoán bão hòa phần cứng
+    uint16_t raw_min = 4095;
+    uint16_t raw_max = 0;
+    for (size_t idx = 0; idx < Constant::ADC_SAMPLES; ++idx) {
+        uint16_t val = p_raw[idx] & Constant::ADC_RESOLUTION_MAX;
+        if (val < raw_min) raw_min = val;
+        if (val > raw_max) raw_max = val;
+    }
+    
+    if (_log_cnt++ % Constant::DIAG_LOG_DIVIDER == 0) {
+        Serial.printf("[DIAG RX%d] Raw ADC Min: %u | Max: %u | Bias: %d\n", _receiverId, raw_min, raw_max, mean);
+    }
+#endif
     
     // Mở rộng vòng lặp (Loop Unrolling) gấp 4 lần để tối ưu hóa pipeline của CPU
     size_t i = 0;
@@ -39,16 +54,16 @@ void ReceiverDMAApp::processRawBuffer(int16_t mean) {
         int32_t val2 = (p_raw[i+2] & Constant::ADC_RESOLUTION_MAX) - mean;
         int32_t val3 = (p_raw[i+3] & Constant::ADC_RESOLUTION_MAX) - mean;
         
-        p_send[i]   = saturate16(val0 << Constant::Q15_SCALE_SHIFT);
-        p_send[i+1] = saturate16(val1 << Constant::Q15_SCALE_SHIFT);
-        p_send[i+2] = saturate16(val2 << Constant::Q15_SCALE_SHIFT);
-        p_send[i+3] = saturate16(val3 << Constant::Q15_SCALE_SHIFT);
+        p_send[i]   = saturate16(val0 * Constant::Q15_SCALE_FACTOR);
+        p_send[i+1] = saturate16(val1 * Constant::Q15_SCALE_FACTOR);
+        p_send[i+2] = saturate16(val2 * Constant::Q15_SCALE_FACTOR);
+        p_send[i+3] = saturate16(val3 * Constant::Q15_SCALE_FACTOR);
     }
     
     // Xử lý các phần tử dư thừa còn lại (nếu tổng số mẫu không chia hết cho 4)
     for (; i < Constant::ADC_SAMPLES; ++i) {
         int32_t val = (p_raw[i] & Constant::ADC_RESOLUTION_MAX) - mean;
-        p_send[i] = saturate16(val << Constant::Q15_SCALE_SHIFT);
+        p_send[i] = saturate16(val * Constant::Q15_SCALE_FACTOR);
     }
 }
 
@@ -69,13 +84,29 @@ void ReceiverDMAApp::applyIirFilter() {
     memcpy(_send_adc_buffer, temp_smooth, Constant::ADC_SAMPLES * sizeof(int16_t));
 }
 
-int ReceiverDMAApp::findSyncPeak() {
-    int peak_idx = -1;
-    // Bắt đầu từ i = 2 để bỏ qua hoàn toàn gai nhiễu chuyển mạch ban đầu (0-1).
+int ReceiverDMAApp::findSyncPeak(float txGain) {
+    // 1. Tìm đỉnh lớn nhất trong cửa sổ tìm kiếm (bỏ qua i = 0 và i = 1 để tránh nhiễu chuyển mạch)
+    int16_t local_max = 0;
     for (int i = 2; i < Constant::SYNC_SEARCH_LEN; ++i) {
-        if (_send_adc_buffer[i] > Constant::THRESHOLD_SYNC) {
+        if (_send_adc_buffer[i] > local_max) {
+            local_max = _send_adc_buffer[i];
+        }
+    }
+    
+    // Nếu đỉnh thu được quá thấp (ví dụ < SYNC_MIN_LOCAL_MAX trong dải Q15), coi như không có xung phát (Tx Off hoặc nhiễu nền)
+    if (local_max < Constant::SYNC_MIN_LOCAL_MAX) {
+        return -1;
+    }
+    
+    // 2. Tính ngưỡng động bằng SYNC_THRESHOLD_PERCENT% giá trị đỉnh thực tế
+    int16_t dynamic_threshold = (int16_t)((int32_t)local_max * Constant::SYNC_THRESHOLD_PERCENT / 100);
+    
+    // 3. Tìm mẫu đầu tiên vượt ngưỡng động này
+    int peak_idx = -1;
+    for (int i = 2; i < Constant::SYNC_SEARCH_LEN; ++i) {
+        if (_send_adc_buffer[i] > dynamic_threshold) {
             peak_idx = i;
-            break; // Tìm thấy mẫu đầu tiên thì dừng ngay
+            break; // Tìm thấy sườn trước của xung thì dừng ngay
         }
     }
     return peak_idx;
@@ -132,7 +163,7 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
         applyIirFilter();
 
         // 3. Peak...
-        int peak_idx = findSyncPeak();
+        int peak_idx = findSyncPeak(com.getTxGain());
 
         if (peak_idx == -1) {
 #ifdef SHOW_SAMPLING_LOG
@@ -187,7 +218,7 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
     // 3. Peak detection (Only when Tx is enabled)
     bool has_valid_signal = true;
     if (txEnabled) {
-        int peak_idx = findSyncPeak();
+        int peak_idx = findSyncPeak(com.getTxGain());
         if (peak_idx == -1) {
 #ifdef SHOW_SAMPLING_LOG
             _dropCount++;

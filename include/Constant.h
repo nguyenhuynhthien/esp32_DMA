@@ -43,6 +43,12 @@ constexpr float ADC_DC_OFFSET =
 // DC bias offset for the 8-bit DAC output (Value: 127)
 constexpr uint8_t DAC_DC_BIAS = 127;
 
+// Minimum value for the 8-bit DAC output (Value: 0)
+constexpr uint8_t DAC_MIN_VAL = 0;
+
+// Maximum value for the 8-bit DAC output (Value: 255)
+constexpr uint8_t DAC_MAX_VAL = 255;
+
 // Length of the sine pulse signal generated (Value: 12)
 constexpr size_t DAC_PULSE_LEN = 12;
 
@@ -114,6 +120,24 @@ constexpr int16_t Q15_MIN = -(1 << Q15_SHIFT);
 
 // Shift amount to scale centered 12-bit ADC values to Q15 range (Value: 4)
 constexpr int Q15_SCALE_SHIFT = Q15_SHIFT - (ADC_BITS - 1);
+
+// Scale factor to map centered 12-bit ADC values to Q15 range without software clipping
+constexpr int Q15_SCALE_FACTOR = 14;
+
+// Interval of diagnostic log output in frames
+constexpr int DIAG_LOG_DIVIDER = 50;
+
+// Ngưỡng suy hao không đáng kể khi phát (gần 1.0)
+constexpr float TX_ATTEN_UNITY_THRESHOLD = 0.99f;
+
+// Kích thước buffer đệm tạm thời cho mạch phát
+constexpr size_t ATTENUATED_BUFFER_SIZE = 128;
+
+// Ngưỡng đỉnh tối thiểu để đồng bộ
+constexpr int16_t SYNC_MIN_LOCAL_MAX = 700;
+
+// Phần trăm ngưỡng động để tìm điểm đồng bộ
+constexpr int SYNC_THRESHOLD_PERCENT = 60;
 
 // --- Software Synchronization & Jitter Correction ---
 // Window size in samples for locating synchronization peak (Value: 120)

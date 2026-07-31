@@ -9,7 +9,7 @@ class TransmitterDMAApp {
 public:
     TransmitterDMAApp(DacDMAService& dacService);
     void init();
-    uint32_t IRAM_ATTR transmit(ComManager::PulseType type);
+    uint32_t IRAM_ATTR transmit(ComManager::PulseType type, float txGain = 1.0f);
 
 private:
     DacDMAService& _dacService;

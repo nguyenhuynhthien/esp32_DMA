@@ -108,19 +108,19 @@ void ComManager::update() {
       } else if (strcmp(command, "mode:compressed") == 0) {
         _streamMode = STREAM_COMPRESSED;
         Serial.println("Streaming mode: Pulse Compressed");
-      } else if (strncmp(command, "tx_atten:", 9) == 0) {
-        const char *valStr = command + 9;
+      } else if (strncmp(command, "tx_atten:", sizeof("tx_atten:") - 1) == 0) {
+        const char *valStr = command + (sizeof("tx_atten:") - 1);
         if (strcmp(valStr, "mute") == 0) {
           _txGain = 0.0f;
           Serial.println("Tx attenuation: Mute");
         } else {
-          int attenDb = atoi(valStr);
+          float attenDb = atof(valStr);
           _txGain = powf(10.0f, -attenDb / 20.0f);
-          Serial.printf("Tx attenuation: -%d dB (gain: %.4f)\n", attenDb,
+          Serial.printf("Tx attenuation: -%.1f dB (gain: %.4f)\n", attenDb,
                         _txGain);
         }
-      } else if (strncmp(command, "rx_select:", 10) == 0) {
-        int rxChan = atoi(command + 10);
+      } else if (strncmp(command, "rx_select:", sizeof("rx_select:") - 1) == 0) {
+        int rxChan = atoi(command + (sizeof("rx_select:") - 1));
         if (rxChan >= 0 && rxChan <= 2) {
           _selectedRxChannel = rxChan;
           Serial.printf("UDP select Rx channel: Rx %d\n", rxChan);
