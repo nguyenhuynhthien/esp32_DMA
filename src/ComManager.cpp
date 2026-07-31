@@ -5,7 +5,13 @@ ComManager::ComManager(const char *ssid, const char *password,
     : _ssid(ssid), _password(password), _hostName(hostName), _port(port),
       _remotePort(0), _isStreaming(false), _pulseType(PULSE_SINGLE),
       _isServoEnabled(false), _streamMode(STREAM_RAW), _txGain(1.0f),
-      _isTxEnabled(false), _targetServoAngle(-1) {
+      _isTxEnabled(false), _targetServoAngle(-1)
+#ifdef SHOW_COMM_LOG
+      , _statsFramesAttempted(0), _statsFramesSent(0), _statsFramesDropped(0),
+      _statsChunksSent(0), _statsChunksFailed(0), _statsTotalSendTimeUs(0),
+      _statsMaxSendTimeUs(0), _statsLastReportTimeMs(0)
+#endif
+{
   for (int i = 0; i < 3; ++i) {
     _queuedFrames[i].ready = false;
   }
@@ -161,6 +167,11 @@ void ComManager::sendFrame(uint16_t frameId, const int16_t *samples,
     uint8_t receiverId;
   };
 
+#ifdef SHOW_COMM_LOG
+  uint32_t startTime = micros();
+  bool frameSuccess = true;
+#endif
+
   for (size_t i = 0; i < CHUNKS_PER_FRAME; ++i) {
     ChunkHeader header;
     header.frameId = frameId;
@@ -173,13 +184,32 @@ void ComManager::sendFrame(uint16_t frameId, const int16_t *samples,
                CHUNK_SAMPLES * sizeof(int16_t));
     
     if (_udp.endPacket() == 0) {
+#ifdef SHOW_COMM_LOG
+        _statsChunksFailed++;
+        frameSuccess = false;
+#endif
         // Gửi thất bại do tràn bộ đệm mạng (ERR_MEM), hoãn lại để WiFi giải phóng bộ nhớ
         vTaskDelay(pdMS_TO_TICKS(Constant::UDP_BACKPRESSURE_DELAY_MS));
     } else {
+#ifdef SHOW_COMM_LOG
+        _statsChunksSent++;
+#endif
         // Pace transmission using configured delay to avoid WiFi buffer overflow
         delayMicroseconds(Constant::UDP_PACE_DELAY_US);
     }
   }
+
+#ifdef SHOW_COMM_LOG
+  uint32_t duration = micros() - startTime;
+  _statsTotalSendTimeUs += duration;
+  if (duration > _statsMaxSendTimeUs) {
+    _statsMaxSendTimeUs = duration;
+  }
+
+  if (frameSuccess) {
+    _statsFramesSent++;
+  }
+#endif
 }
 
 void ComManager::sendAngle(uint16_t angle) {
@@ -213,11 +243,20 @@ void ComManager::sendFrameAsync(uint16_t frameId, const int16_t *samples,
   if (!_isStreaming || size != Constant::ADC_SAMPLES) {
     return;
   }
+
+#ifdef SHOW_COMM_LOG
+  _statsFramesAttempted++;
+#endif
+
   // Determine queue slot based on receiverId (Rx0 Sum -> slot 2, Rx1 -> slot 0,
   // Rx2 -> slot 1)
   int slot = (receiverId == 0) ? 2 : (receiverId - 1);
-  if (_queuedFrames[slot].ready)
+  if (_queuedFrames[slot].ready) {
+#ifdef SHOW_COMM_LOG
+    _statsFramesDropped++;
+#endif
     return; // Drop frame if previous one is still sending to avoid corruption
+  }
 
   _queuedFrames[slot].frameId = frameId;
   _queuedFrames[slot].receiverId = receiverId;
@@ -237,5 +276,37 @@ bool ComManager::processAsyncSends() {
       vTaskDelay(pdMS_TO_TICKS(1));
     }
   }
+
+#ifdef SHOW_COMM_LOG
+  // Print UDP stats periodically
+  uint32_t now = millis();
+  if (_isStreaming && (now - _statsLastReportTimeMs >= 2000)) {
+    float avgSendTimeMs = 0.0f;
+    if (_statsFramesSent > 0) {
+      avgSendTimeMs = (float)_statsTotalSendTimeUs / _statsFramesSent / 1000.0f;
+    }
+    
+    Serial.printf("[UDP STATS] Duration: %d ms | Frames: Attempted=%u, Sent=%u, Dropped=%u (DropRate: %.1f%%)\n",
+                  (int)(now - _statsLastReportTimeMs),
+                  _statsFramesAttempted, _statsFramesSent, _statsFramesDropped,
+                  _statsFramesAttempted > 0 ? (float)_statsFramesDropped * 100.0f / _statsFramesAttempted : 0.0f);
+    Serial.printf("[UDP STATS] Chunks: Sent=%u, Failed (endPacket=0)=%u | Latency: Avg=%.2f ms, Max=%.2f ms\n",
+                  _statsChunksSent, _statsChunksFailed,
+                  avgSendTimeMs, (float)_statsMaxSendTimeUs / 1000.0f);
+    
+    // Reset stats for the next interval
+    _statsFramesAttempted = 0;
+    _statsFramesSent = 0;
+    _statsFramesDropped = 0;
+    _statsChunksSent = 0;
+    _statsChunksFailed = 0;
+    _statsTotalSendTimeUs = 0;
+    _statsMaxSendTimeUs = 0;
+    _statsLastReportTimeMs = now;
+  } else if (!_isStreaming) {
+    _statsLastReportTimeMs = now; // Keep updated when offline
+  }
+#endif
+
   return sentAny;
 }

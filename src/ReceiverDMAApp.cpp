@@ -100,26 +100,26 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
         int peak_idx = findSyncPeak();
 
         if (peak_idx == -1) {
-            static uint32_t dropCount = 0;
-            dropCount++;
-            if (dropCount % 50 == 0) {
+#ifdef SHOW_SAMPLING_LOG
+            _dropCount++;
+            if (_dropCount % 50 == 0) {
                 Serial.printf("[SYNC] Cảnh báo: Không tìm thấy đỉnh đồng bộ > %.1fV trong %d mẫu đầu. Đã bỏ qua %u xung.\n", 
-                              Constant::SYNC_THRESHOLD_VOLTS, Constant::SYNC_SEARCH_LEN, dropCount);
+                              Constant::SYNC_THRESHOLD_VOLTS, Constant::SYNC_SEARCH_LEN, _dropCount);
             }
+#endif
             return;
         }
 
         volatile int shift = peak_idx - 1;
         shiftSignal(shift);
 
-        static uint32_t loopCount = 0;
-        loopCount++;
-        if (loopCount % 50 == 0) {
 #ifdef SHOW_SAMPLING_LOG
+        _loopCount++;
+        if (_loopCount % 50 == 0) {
             Serial.printf("[LOG RX%d] Tx PRI: %.2f ms | Tx Fs: %.2f kHz | Rx PRI: %.2f ms | Rx Fs: %.2f kHz (Đọc trong %llu us)\n",
                           _receiverId, txPriMs, txFsKhz, rx_pri_ms, fs_actual / 1000.0, elapsed_time);
-#endif
         }
+#endif
 
         // 6. Gửi dữ liệu qua UDP
         _sendCount++;
@@ -160,26 +160,26 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
     int peak_idx = findSyncPeak();
 
     if (peak_idx == -1) {
-        static uint32_t dropCount = 0;
-        dropCount++;
-        if (dropCount % 50 == 0) {
+#ifdef SHOW_SAMPLING_LOG
+        _dropCount++;
+        if (_dropCount % 50 == 0) {
             Serial.printf("[SYNC RX%d] Cảnh báo: Không tìm thấy đỉnh đồng bộ > %.1fV trong %d mẫu đầu. Đã bỏ qua %u xung.\n", 
-                          _receiverId, Constant::SYNC_THRESHOLD_VOLTS, Constant::SYNC_SEARCH_LEN, dropCount);
+                          _receiverId, Constant::SYNC_THRESHOLD_VOLTS, Constant::SYNC_SEARCH_LEN, _dropCount);
         }
+#endif
         return;
     }
 
     volatile int shift = peak_idx - 1;
     shiftSignal(shift);
 
-    static uint32_t loopCount = 0;
-    loopCount++;
-    if (loopCount % 50 == 0) {
 #ifdef SHOW_SAMPLING_LOG
+    _loopCount++;
+    if (_loopCount % 50 == 0) {
         Serial.printf("[LOG RX%d] Tx PRI: %.2f ms | Tx Fs: %.2f kHz | Rx PRI: %.2f ms | Rx Fs: %.2f kHz (Đọc trong %llu us)\n",
                       _receiverId, txPriMs, txFsKhz, rx_pri_ms, fs_actual / 1000.0, elapsed_time);
-#endif
     }
+#endif
 
     // 6. Gửi dữ liệu qua UDP
     _sendCount++;

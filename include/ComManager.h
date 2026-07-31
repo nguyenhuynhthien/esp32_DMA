@@ -61,6 +61,18 @@ private:
         volatile bool ready;
     };
     QueuedFrame _queuedFrames[3];
+
+    // UDP performance and congestion statistics
+#ifdef SHOW_COMM_LOG
+    uint32_t _statsFramesAttempted;
+    uint32_t _statsFramesSent;
+    uint32_t _statsFramesDropped;
+    uint32_t _statsChunksSent;
+    uint32_t _statsChunksFailed;
+    uint32_t _statsTotalSendTimeUs;
+    uint32_t _statsMaxSendTimeUs;
+    uint32_t _statsLastReportTimeMs;
+#endif
 };
 
 
