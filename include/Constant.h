@@ -276,7 +276,7 @@ constexpr int16_t THRESHOLD_SYNC = static_cast<int16_t>(
 
 // Length of samples in the search window at start of frame to detect t0 peak
 // (Value: 20)
-constexpr int SYNC_SEARCH_LEN = 20;
+constexpr int SYNC_SEARCH_LEN = 100;
 
 // Padding samples added to the start and end of DAC pulse buffers to stabilize
 // DAC output (Value: 4)

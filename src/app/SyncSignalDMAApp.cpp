@@ -87,6 +87,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
         rx1_count = p_rx1 - rx1_buffer;
         rx2_count = p_rx2 - rx2_buffer;
 
+
         // Điền mẫu cuối cùng nếu không nhận đủ số lượng mẫu yêu cầu
         uint16_t pad_val1 = (rx1_count > 0) ? (rx1_buffer[rx1_count - 1] & Constant::ADC_RESOLUTION_MAX) : 2048;
         while (rx1_count < Constant::ADC_SAMPLES) {

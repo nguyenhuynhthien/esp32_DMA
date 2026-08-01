@@ -4,6 +4,8 @@
 #include <Constant.h>
 #include "soc/syscon_struct.h"
 #include "soc/syscon_reg.h"
+#include "soc/sens_struct.h"
+#include "soc/sens_reg.h"
 
 AdcDMASignal::AdcDMASignal() {}
 
@@ -49,27 +51,33 @@ void AdcDMASignal::init() {
 }
 
 void IRAM_ATTR AdcDMASignal::start() {
-    // Reset RX FIFO và RX DMA phần cứng để tránh hoàn toàn lệch byte (byte swap)
+    // 1. Reset RX FIFO và RX DMA phần cứng trước khi chạy
     I2S0.conf.rx_fifo_reset = 1;
     I2S0.conf.rx_fifo_reset = 0;
     I2S0.lc_conf.in_rst = 1;
     I2S0.lc_conf.in_rst = 0;
 
+    // 2. Chạy I2S và ADC trước để ESP-IDF khởi tạo driver phần cứng
     i2s_start(I2S_NUM_0);
     i2s_adc_enable(I2S_NUM_0);
 
-    // Configure the ADC I2S pattern table directly via registers
-    // Entry format: [Bits 7:4 - Channel] [Bits 3:2 - Bit Width (3 = 12bit)] [Bits 1:0 - Attenuation (3 = 11dB/12dB)]
-    uint8_t entry0 = (ADC1_CHANNEL_4 << 4) | (3 << 2) | 3; // Channel 4, 12-bit, 11dB/12dB attenuation
-    uint8_t entry1 = (ADC1_CHANNEL_5 << 4) | (3 << 2) | 3; // Channel 5, 12-bit, 11dB/12dB attenuation
+    // 3. Ghi đè cấu hình bảng mẫu và clock trực tiếp vào thanh ghi SYSCON
+    // Định dạng mẫu: [Kênh 7:4] [Độ rộng bit 3:2 (3 = 12bit)] [Mức suy hao 1:0 (3 = 11dB/12dB)]
+    uint8_t entry0 = (ADC1_CHANNEL_4 << 4) | (3 << 2) | 3; // Kênh 4 (GPIO 32)
+    uint8_t entry1 = (ADC1_CHANNEL_5 << 4) | (3 << 2) | 3; // Kênh 5 (GPIO 33)
 
-    // Set pattern length (2 entries, value is length - 1)
     SYSCON.saradc_ctrl.sar1_patt_len = 1;
-    // Pack both entries into the first pattern table register (MSB first)
     SYSCON.saradc_sar1_patt_tab[0] = (entry0 << 24) | (entry1 << 16) | 0xFFFF;
 
-    SYSCON.saradc_ctrl.sar_clk_div = 4; // Giảm tỉ số chia xuống 4 để tăng tốc độ ADC lên 320 kHz tổng hợp
-    SYSCON.saradc_fsm.sample_cycle = 9; // Giữ chu kỳ lấy mẫu bằng 9 để tụ nạp đầy đủ điện áp, tránh gọt đỉnh
+    SYSCON.saradc_ctrl.sar_clk_div = 4; // Tăng tốc độ lấy mẫu ADC lên 320 kHz tổng hợp
+    SYSCON.saradc_fsm.sample_cycle = 9; // Giữ chu kỳ lấy mẫu để nạp đầy điện áp tụ
+
+    // 4. Thiết lập trực tiếp thanh ghi suy hao của ADC1 để cố định 11dB cho toàn bộ kênh
+    SENS.sar_atten1 = 0xFFFF;
+
+    // 5. Đồng thời gọi API thiết lập lại Attenuation cho cả hai kênh ADC để đảm bảo tính đồng bộ của driver
+    adc1_config_channel_atten(ADC1_CHANNEL_4, ADC_ATTEN_DB_12);
+    adc1_config_channel_atten(ADC1_CHANNEL_5, ADC_ATTEN_DB_12);
 }
 
 void AdcDMASignal::stop() {
