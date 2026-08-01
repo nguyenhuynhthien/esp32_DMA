@@ -43,3 +43,46 @@ uint32_t IRAM_ATTR TransmitterDMAApp::transmit(ComManager::PulseType type, float
 
     return _dacService.transmitPulse(attenuated_pulse, len);
 }
+
+uint32_t IRAM_ATTR TransmitterDMAApp::transmitSimulationBurst(ComManager::PulseType type, float txGain, size_t delaySamples, float echoGain) {
+    size_t pulse_len = 0;
+    const uint8_t* source_pulse = nullptr;
+    
+    if (type == ComManager::PULSE_SINGLE) {
+        pulse_len = Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING;
+        source_pulse = _single_pulse;
+    } else {
+        pulse_len = Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING;
+        source_pulse = _barker13_pulse;
+    }
+
+    // Đảm bảo không tràn buffer _burst_buffer (kích thước tối đa là 800)
+    if (pulse_len * 2 + delaySamples > 800) {
+        return 0;
+    }
+
+    size_t write_idx = 0;
+
+    // 1. Ghi xung đồng bộ chính (áp dụng txGain)
+    for (size_t i = 0; i < pulse_len; ++i) {
+        int32_t deviation = (int32_t)source_pulse[i] - Constant::DAC_DC_BIAS;
+        int32_t val = Constant::DAC_DC_BIAS + (int32_t)(deviation * txGain);
+        _burst_buffer[write_idx++] = (uint8_t)constrain(val, Constant::DAC_MIN_VAL, Constant::DAC_MAX_VAL);
+    }
+
+    // 2. Điền khoảng lặng (mức bias 127) tương ứng với delaySamples
+    for (size_t i = 0; i < delaySamples; ++i) {
+        _burst_buffer[write_idx++] = Constant::DAC_DC_BIAS;
+    }
+
+    // 3. Ghi xung echo giả lập (áp dụng txGain * echoGain)
+    float total_echo_gain = txGain * echoGain;
+    for (size_t i = 0; i < pulse_len; ++i) {
+        int32_t deviation = (int32_t)source_pulse[i] - Constant::DAC_DC_BIAS;
+        int32_t val = Constant::DAC_DC_BIAS + (int32_t)(deviation * total_echo_gain);
+        _burst_buffer[write_idx++] = (uint8_t)constrain(val, Constant::DAC_MIN_VAL, Constant::DAC_MAX_VAL);
+    }
+
+    // 4. Phát toàn bộ burst ra DAC một lần duy nhất
+    return _dacService.transmitPulse(_burst_buffer, write_idx);
+}

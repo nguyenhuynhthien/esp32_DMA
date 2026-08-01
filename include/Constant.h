@@ -9,11 +9,11 @@
 #define SHOW_COMM_LOG
 
 // Define to enable simulation mode (injects echo signal)
-// #define SIMULATION_MODE
+#define SIMULATION_MODE
 
 namespace Constant {
 // Delay in samples for simulated echo signal (Value: 1000)
-constexpr size_t SIMULATOR_DELAY_SAMPLES = 1000;
+constexpr size_t SIMULATOR_DELAY_SAMPLES = 500;
 
 // --- Base Sonar & DSP Parameters ---
 // Center frequency of the transducer in Hz (Value: 40000.0)

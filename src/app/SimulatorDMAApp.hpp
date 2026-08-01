@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include "service/ComManager.hpp"
+#include "TransmitterDMAApp.hpp"
 #include <Constant.h>
 
 #ifdef SIMULATION_MODE
@@ -11,7 +12,7 @@ class SimulatorDMAApp {
 public:
     SimulatorDMAApp();
     void init();
-    void injectSimulationQ15(int16_t* sendBuffer, size_t size, ComManager::PulseType pulseType, uint16_t frameId, double priMs, bool txEnabled);
+    void fireSimulatedTransmission(TransmitterDMAApp& transmitterApp, ComManager::PulseType pulseType, float txGain);
 
 private:
     static constexpr size_t NOISE_TABLE_SIZE = 512;

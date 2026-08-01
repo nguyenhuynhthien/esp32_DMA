@@ -1,13 +1,8 @@
 #include "SyncSignalDMAApp.hpp"
 #include <Arduino.h>
 
-#ifdef SIMULATION_MODE
-SyncSignalDMAApp::SyncSignalDMAApp(AdcDMAService& adcService, TransmitterDMAApp& transmitterApp, ReceiverDMAApp& receiverApp1, ReceiverDMAApp& receiverApp2, SimulatorDMAApp& simulatorApp)
-    : _adcService(adcService), _transmitterApp(transmitterApp), _receiverApp1(receiverApp1), _receiverApp2(receiverApp2), _simulatorApp(simulatorApp) {}
-#else
 SyncSignalDMAApp::SyncSignalDMAApp(AdcDMAService& adcService, TransmitterDMAApp& transmitterApp, ReceiverDMAApp& receiverApp1, ReceiverDMAApp& receiverApp2)
     : _adcService(adcService), _transmitterApp(transmitterApp), _receiverApp1(receiverApp1), _receiverApp2(receiverApp2) {}
-#endif
 
 void SyncSignalDMAApp::init() {
     // Services and Apps are initialized externally or coordinated
@@ -34,6 +29,12 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 
     bool txEnabled = com.isTxEnabled();
 
+    // Đồng bộ: Gửi Task Notification báo hiệu cho TxTask trên Core 0 phát xung ngay lập tức
+    extern TaskHandle_t txTaskHandle;
+    if (txTaskHandle != nullptr && txEnabled) {
+        xTaskNotifyGive(txTaskHandle);
+    }
+
 #ifdef SHOW_SAMPLING_LOG
     uint64_t adc_start_time = esp_timer_get_time();
 #else
@@ -43,42 +44,11 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
     // 3. Đọc loại xung
     ComManager::PulseType pulseType = com.getPulseType();
 
-    // 4. Phát DAC đồng bộ ngay lập tức và đo thời gian phát (us)
-    double tx_pri_ms = 0.0;
-    double tx_fs_khz = 0.0;
-
-#ifdef SHOW_SAMPLING_LOG
-    if (txEnabled) {
-        // Đo Tx PRI
-        static uint64_t last_tx_time = 0;
-        uint64_t current_tx_time = esp_timer_get_time();
-        if (last_tx_time != 0) {
-            tx_pri_ms = (double)(current_tx_time - last_tx_time) / 1000.0;
-        }
-        last_tx_time = current_tx_time;
-
-        uint32_t cpu_freq_mhz = ESP.getCpuFreqMHz();
-        
-        uint32_t tx_cycles = _transmitterApp.transmit(pulseType, com.getTxGain());
-        
-        // Tính số lượng mẫu phát
-        size_t tx_len = (pulseType == ComManager::PULSE_SINGLE) 
-                        ? (Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING)
-                        : (Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING);
-        
-        // Đổi chu kỳ CPU sang us
-        double tx_elapsed_us = (double)tx_cycles / (double)cpu_freq_mhz;
-
-        // Tx Fs = Số mẫu * 1000.0 / Thời gian phát (kHz)
-        if (tx_elapsed_us > 0) {
-            tx_fs_khz = (double)tx_len * 1000.0 / tx_elapsed_us;
-        }
-    }
-#else
-    if (txEnabled) {
-        _transmitterApp.transmit(pulseType, com.getTxGain());
-    }
-#endif
+    // 4. Phát DAC đã được chuyển sang Core 0. Lấy thông số đo đạc từ các biến toàn cục.
+    extern volatile double global_tx_pri_ms;
+    extern volatile double global_tx_fs_khz;
+    double tx_pri_ms = global_tx_pri_ms;
+    double tx_fs_khz = global_tx_fs_khz;
 
     // 5. Nhận và xử lý dữ liệu từ ADC DMA cho cả 2 kênh
     static uint16_t raw_interleaved_buffer[Constant::ADC_SAMPLES * 4];
@@ -144,11 +114,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 #ifdef SHOW_TIMING_LOG
         uint64_t t_start_proc1 = esp_timer_get_time();
 #endif
-        _receiverApp1.process(rx1_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time, 
-#ifdef SIMULATION_MODE
-                              &_simulatorApp, 
-#endif
-                              txEnabled);
+        _receiverApp1.process(rx1_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time, txEnabled);
 #ifdef SHOW_TIMING_LOG
         uint64_t proc1_time = esp_timer_get_time() - t_start_proc1;
 #endif
@@ -156,18 +122,14 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 #ifdef SHOW_TIMING_LOG
         uint64_t t_start_proc2 = esp_timer_get_time();
 #endif
-        _receiverApp2.process(rx2_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time, 
-#ifdef SIMULATION_MODE
-                              &_simulatorApp, 
-#endif
-                              txEnabled);
+        _receiverApp2.process(rx2_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time, txEnabled);
 #ifdef SHOW_TIMING_LOG
         uint64_t proc2_time = esp_timer_get_time() - t_start_proc2;
 #endif
 
 #ifdef SHOW_TIMING_LOG
         if ((debug_cnt - 1) % 50 == 0) {
-            Serial.printf("[TIMING] Stop-Start: %llu us | Demux: %llu us | Proc1: %llu us | Proc2: %llu us\n",
+            Serial.printf("[TIMING] Tre_khoi_dong_ADC: %llu us | Tach_kenh: %llu us | Loc_Dongbo_Gui_Kenh1: %llu us | Loc_Dongbo_Gui_Kenh2: %llu us\n",
                           stop_start_time, demux_time, proc1_time, proc2_time);
         }
 #endif

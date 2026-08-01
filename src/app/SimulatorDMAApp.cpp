@@ -29,90 +29,9 @@ void SimulatorDMAApp::init() {
     }
 }
 
-
-
-void SimulatorDMAApp::injectSimulationQ15(int16_t* sendBuffer, size_t size, ComManager::PulseType pulseType, uint16_t frameId, double priMs, bool txEnabled) {
-    if (sendBuffer == nullptr || size <= Constant::SIMULATOR_DELAY_SAMPLES) {
-        return;
-    }
-
-    // 1. Tiêm nhiễu Gauss bằng cách lấy mẫu tuần hoàn từ bảng nhiễu đã sinh sẵn (tối ưu hóa tốc độ cực đại)
-    static size_t start_idx = 0;
-    start_idx = (start_idx + 17) % NOISE_TABLE_SIZE;
-    for (size_t i = 0; i < size; ++i) {
-        int32_t val = sendBuffer[i] + _noise_table[(start_idx + i) % NOISE_TABLE_SIZE];
-        sendBuffer[i] = static_cast<int16_t>(constrain(val, Constant::Q15_MIN, Constant::Q15_MAX));
-    }
-
-    // 2. Tính toán các thông số Doppler sử dụng float (Hardware FPU của ESP32)
-    float fd = 0.0f;
-    if (pulseType == ComManager::PULSE_BARKER13) {
-        fd = 12.5f; // PRF = 50 Hz, fd = 12.5 Hz (tương đương dịch pha delta_phi = pi/2 rad mỗi frame)
-    } else {
-        fd = 16.67f; // PRF = 66.67 Hz, fd = 16.67 Hz (tương đương dịch pha delta_phi = pi/2 rad mỗi frame)
-    }
-
-    // Tần số lấy mẫu fs = 160000 Hz, góc pha Doppler mỗi mẫu (theta_d)
-    float theta_d = 2.0f * PI * fd / 160000.0f;
-    // Pha slow-time tích lũy giữa các frame
-    float delta_phi = 2.0f * PI * fd * (static_cast<float>(priMs) / 1000.0f);
-    float initial_phase = static_cast<float>(frameId) * delta_phi;
-
-    size_t pulse_len = 0;
-    if (pulseType == ComManager::PULSE_BARKER13) {
-        pulse_len = Constant::BARKER13_PULSE_LEN;
-    } else {
-        pulse_len = Constant::FILTER_COEFFS_LEN;
-    }
-
-    // Không bật Tx thì chỉ tiêm nhiễu nền để mô phỏng môi trường thu tĩnh.
-    if (!txEnabled) {
-        return;
-    }
-
-    // Định nghĩa mã Barker 13 (gồm 13 chip, mỗi chip 8 mẫu)
-    const int8_t BARKER_CODE[13] = {1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1};
-    float amplitude = 10000.0f; // Tăng biên độ suy hao của xung echo mô phỏng lên 10000 (~30% dải Q15_MAX)
-
-    // Khởi tạo bộ tích lũy pha góc số nguyên 32-bit (0 tương ứng 0, 2^32 tương ứng 2*PI)
-    // d_phase (mỗi mẫu tăng lên) = PI/2 + theta_d
-    uint32_t phase_step = static_cast<uint32_t>((((PI / 2.0f) + theta_d) / (2.0f * PI)) * 4294967296.0f);
-    uint32_t current_phase_int = static_cast<uint32_t>((initial_phase / (2.0f * PI)) * 4294967296.0f);
-
-    for (size_t i = 0; i < pulse_len; ++i) {
-        size_t target_idx = Constant::SIMULATOR_DELAY_SAMPLES + i;
-        if (target_idx >= size) {
-            break;
-        }
-
-        // Xác định Code(i)
-        float code_val = 1.0f;
-        if (pulseType == ComManager::PULSE_BARKER13) {
-            code_val = static_cast<float>(BARKER_CODE[i / 8]);
-        }
-
-        // Xác định Envelope(i) (méo sườn tăng/giảm ở đầu và cuối xung)
-        float env = 1.0f;
-        size_t ramp_len = pulse_len / 10;
-        if (ramp_len == 0) ramp_len = 1;
-        if (i < ramp_len) {
-            env = static_cast<float>(i) / static_cast<float>(ramp_len);
-        } else if (i >= pulse_len - ramp_len) {
-            env = static_cast<float>(pulse_len - 1 - i) / static_cast<float>(ramp_len);
-        }
-
-        // Đọc giá trị sine từ bảng tra cứu
-        size_t lut_idx = (current_phase_int >> (32 - 8)) & 0xFF; // dịch 24 bit để lấy 8 bit cao tương đương LUT 256
-        int16_t sin_val_q15 = _sin_lut[lut_idx];
-        current_phase_int += phase_step;
-        
-        // Tạo xung mô phỏng dạng Q15 loại bỏ hoàn toàn lượng giác float sinf()
-        int32_t sim_val_q15 = static_cast<int32_t>((amplitude * env * code_val * sin_val_q15) / 32768.0f);
-
-        // Cộng vào buffer Q15 đã đồng bộ
-        int32_t current_val = sendBuffer[target_idx];
-        sendBuffer[target_idx] = static_cast<int16_t>(constrain(current_val + sim_val_q15, Constant::Q15_MIN, Constant::Q15_MAX));
-    }
+void SimulatorDMAApp::fireSimulatedTransmission(TransmitterDMAApp& transmitterApp, ComManager::PulseType pulseType, float txGain) {
+    // Phát chuỗi xung ghép (xung gốc + khoảng lặng 500 mẫu + xung echo) một lần duy nhất ra DAC
+    transmitterApp.transmitSimulationBurst(pulseType, txGain, Constant::SIMULATOR_DELAY_SAMPLES, 0.15f);
 }
 
 #endif // SIMULATION_MODE

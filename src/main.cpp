@@ -38,12 +38,13 @@ ReceiverDMAApp receiverApp1(adcService, Constant::RECEIVER_ID_RX1);
 ReceiverDMAApp receiverApp2(adcService, Constant::RECEIVER_ID_RX2);
 #ifdef SIMULATION_MODE
 SimulatorDMAApp simulatorApp;
-SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp1, receiverApp2, simulatorApp);
-#else
-SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp1, receiverApp2);
 #endif
+SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp1, receiverApp2);
 
 uint16_t frameId = 0;
+TaskHandle_t txTaskHandle = nullptr;
+volatile double global_tx_pri_ms = 0.0;
+volatile double global_tx_fs_khz = 0.0;
 
 void setup() {
   Serial.begin(115200);
@@ -78,13 +79,52 @@ void setup() {
 
           // Gửi dữ liệu UDP bất đồng bộ
           if (!com.processAsyncSends()) {
-            vTaskDelay(pdMS_TO_TICKS(5));
+             vTaskDelay(pdMS_TO_TICKS(5));
           } else {
-            vTaskDelay(pdMS_TO_TICKS(1));
+             vTaskDelay(pdMS_TO_TICKS(1));
           }
         }
       },
       "NetworkTask", 4096, nullptr, 4, nullptr, 0
+  );
+
+  // Tạo TxTask chạy trên Core 0 (ưu tiên 24 - cao nhất) để quản lý phát xung và Simulator độc lập
+  xTaskCreatePinnedToCore(
+      [](void *param) {
+        Serial.println("Tx Task (Core 0) started.");
+        while (true) {
+          // Block chờ thông báo phát xung từ Core 1
+          ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+          if (com.isStreaming() && com.isTxEnabled()) {
+            static uint64_t last_tx_time = 0;
+            uint64_t current_tx_time = esp_timer_get_time();
+            if (last_tx_time != 0) {
+              global_tx_pri_ms = (double)(current_tx_time - last_tx_time) / 1000.0;
+            }
+            last_tx_time = current_tx_time;
+
+            uint32_t cpu_freq_mhz = ESP.getCpuFreqMHz();
+            uint32_t start_cycles = ESP.getCycleCount();
+
+#ifdef SIMULATION_MODE
+            simulatorApp.fireSimulatedTransmission(transmitterApp, com.getPulseType(), com.getTxGain());
+#else
+            transmitterApp.transmit(com.getPulseType(), com.getTxGain());
+#endif
+
+            uint32_t tx_cycles = ESP.getCycleCount() - start_cycles;
+            size_t tx_len = (com.getPulseType() == ComManager::PULSE_SINGLE) 
+                            ? (Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING)
+                            : (Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING);
+            double tx_elapsed_us = (double)tx_cycles / (double)cpu_freq_mhz;
+            if (tx_elapsed_us > 0) {
+              global_tx_fs_khz = (double)tx_len * 1000.0 / tx_elapsed_us;
+            }
+          }
+        }
+      },
+      "TxTask", 4096, nullptr, 24, &txTaskHandle, 0
   );
 
   // Tạo SyncTask chạy trên Core 1 (ưu tiên 20) để chạy vòng lặp thu phát thời gian thực ADC/DAC

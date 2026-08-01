@@ -18,9 +18,6 @@ public:
   void process(const uint16_t *rawSamples, ComManager &com, uint16_t frameId,
                double priMs, double txPriMs, double txFsKhz,
                uint64_t elapsed_time, 
-#ifdef SIMULATION_MODE
-               SimulatorDMAApp *simulatorApp = nullptr,
-#endif
                bool txEnabled = false);
 
 private:
