@@ -12,7 +12,9 @@
 #include "app/TransmitterDMAApp.hpp"
 #include "app/ReceiverDMAApp.hpp"
 #include "app/SyncSignalDMAApp.hpp"
+#ifdef SIMULATION_MODE
 #include "app/SimulatorDMAApp.hpp"
+#endif
 
 
 // Thông tin kết nối WiFi
@@ -34,8 +36,12 @@ DacDMAService dacService(dacSignal);
 TransmitterDMAApp transmitterApp(dacService);
 ReceiverDMAApp receiverApp1(adcService, Constant::RECEIVER_ID_RX1);
 ReceiverDMAApp receiverApp2(adcService, Constant::RECEIVER_ID_RX2);
+#ifdef SIMULATION_MODE
 SimulatorDMAApp simulatorApp;
 SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp1, receiverApp2, simulatorApp);
+#else
+SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp1, receiverApp2);
+#endif
 
 uint16_t frameId = 0;
 
@@ -57,7 +63,9 @@ void setup() {
   transmitterApp.init();
   receiverApp1.init();
   receiverApp2.init();
+#ifdef SIMULATION_MODE
   simulatorApp.init();
+#endif
   syncApp.init();
 
   // Tạo NetworkTask chạy trên Core 0 (ưu tiên 4) để xử lý toàn bộ truyền thông UDP (nhận và gửi)

@@ -1,3 +1,6 @@
+#include <Constant.h>
+#ifdef SIMULATION_MODE
+
 #include "SimulatorDMAApp.hpp"
 
 // Khởi tạo các biến tĩnh
@@ -111,3 +114,5 @@ void SimulatorDMAApp::injectSimulationQ15(int16_t* sendBuffer, size_t size, ComM
         sendBuffer[target_idx] = static_cast<int16_t>(constrain(current_val + sim_val_q15, Constant::Q15_MIN, Constant::Q15_MAX));
     }
 }
+
+#endif // SIMULATION_MODE

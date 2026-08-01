@@ -5,6 +5,8 @@
 #include "service/ComManager.hpp"
 #include <Constant.h>
 
+#ifdef SIMULATION_MODE
+
 class SimulatorDMAApp {
 public:
     SimulatorDMAApp();
@@ -19,5 +21,7 @@ private:
     static bool _sin_lut_initialized;
     size_t _noise_idx;
 };
+
+#endif // SIMULATION_MODE
 
 #endif // SIMULATOR_DMA_APP_HPP

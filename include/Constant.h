@@ -9,7 +9,7 @@
 #define SHOW_COMM_LOG
 
 // Define to enable simulation mode (injects echo signal)
-#define SIMULATION_MODE
+// #define SIMULATION_MODE
 
 namespace Constant {
 // Delay in samples for simulated echo signal (Value: 1000)
@@ -121,7 +121,8 @@ constexpr int16_t Q15_MIN = -(1 << Q15_SHIFT);
 // Shift amount to scale centered 12-bit ADC values to Q15 range (Value: 4)
 constexpr int Q15_SCALE_SHIFT = Q15_SHIFT - (ADC_BITS - 1);
 
-// Scale factor to map centered 12-bit ADC values to Q15 range without software clipping
+// Scale factor to map centered 12-bit ADC values to Q15 range without software
+// clipping
 constexpr int Q15_SCALE_FACTOR = 14;
 
 // Interval of diagnostic log output in frames

@@ -1,3 +1,4 @@
+#include <Constant.h>
 #include "ReceiverDMAApp.hpp"
 #include <Arduino.h>
 
@@ -199,7 +200,11 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
     }
 }
 
-void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, double txPriMs, double txFsKhz, uint64_t elapsed_time, SimulatorDMAApp* simulatorApp, bool txEnabled) {
+void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, double txPriMs, double txFsKhz, uint64_t elapsed_time, 
+#ifdef SIMULATION_MODE
+                             SimulatorDMAApp* simulatorApp, 
+#endif
+                             bool txEnabled) {
     // Sao chép buffer thô vào bộ nhớ cục bộ
     memcpy(_raw_adc_buffer, rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
 
