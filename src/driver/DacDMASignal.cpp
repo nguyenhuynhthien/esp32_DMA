@@ -19,7 +19,7 @@ uint32_t IRAM_ATTR DacDMASignal::firePulse(const uint8_t* pulse, size_t length) 
 
     // Vô hiệu hóa ngắt cục bộ trên Core 0 (không dùng spinlock liên lõi để tránh treo Core 1 phục vụ I2S DMA)
     unsigned int old_int_level;
-    __asm__ __volatile__("rsil %0, 15" : "=a" (old_int_level));
+    __asm__ __volatile__("rsil %0, 3" : "=a" (old_int_level));
 
     uint32_t start_cycles = get_ccount();
     for (size_t i = 0; i < length; ++i) {

@@ -116,7 +116,7 @@ void setup() {
                             ? (Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING)
                             : (Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING);
 #ifdef SIMULATION_MODE
-            tx_len = tx_len * 2 + Constant::SIMULATOR_DELAY_SAMPLES;
+            tx_len = tx_len + Constant::SIMULATOR_DELAY_SAMPLES;
 #endif
             double tx_elapsed_us = (double)tx_cycles / (double)cpu_freq_mhz;
             if (tx_elapsed_us > 0) {

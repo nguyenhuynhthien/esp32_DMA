@@ -257,8 +257,8 @@ constexpr uint32_t WIFI_CONNECT_TIMEOUT_LIMIT = 10000 / WIFI_CONNECT_DELAY_MS;
 constexpr uint32_t WIFI_ARP_DELAY_MS = 300;
 
 // Delay in microseconds between UDP packets to control transmission pacing
-// (Value: 500)
-constexpr uint32_t UDP_PACE_DELAY_US = 500;
+// (Value: 50)
+constexpr uint32_t UDP_PACE_DELAY_US = 50;
 
 // --- Target Physical Parameters & Calculations ---
 // ADC reference voltage in Volts (Value: 3.3f)
@@ -291,8 +291,8 @@ constexpr uint32_t ADC_STOP_STABILIZATION_US = 50;
 // memory overflow (Value: 2)
 constexpr uint32_t UDP_BACKPRESSURE_DELAY_MS = 2;
 
-// UDP downsampling divider to send every N-th frame to SonarViewer (Value: 3)
-constexpr uint32_t UDP_SEND_DIVIDER = 3;
+// UDP downsampling divider to send every N-th frame to SonarViewer (Value: 4)
+constexpr uint32_t UDP_SEND_DIVIDER = 4;
 
 // Receiver channel identifier used when transmitting UDP frame (Value: 1)
 constexpr uint8_t RX_CHANNEL_1_ID = 1;

@@ -12,7 +12,7 @@ class ReceiverDMAApp {
 public:
   ReceiverDMAApp(AdcDMAService &adcService, uint8_t receiverId);
   void init();
-  void receiveAndProcess(ComManager &com, uint16_t &frameId, double priMs,
+  void receiveAndProcess(ComManager &com, uint16_t frameId, double priMs,
                          double txPriMs = 0.0, double txFsKhz = 0.0,
                          uint64_t adcStartTime = 0);
   void process(const uint16_t *rawSamples, ComManager &com, uint16_t frameId,
@@ -23,14 +23,15 @@ public:
 private:
   AdcDMAService &_adcService;
   uint8_t _receiverId;
-  uint16_t _raw_adc_buffer[Constant::ADC_SAMPLES];
-  int16_t _send_adc_buffer[Constant::ADC_SAMPLES];
+
 
   int16_t calculateDcBias();
   void processRawBuffer(int16_t mean);
   void applyIirFilter();
   int findSyncPeak(float txGain = 1.0f);
   void shiftSignal(int shift);
+  void performIQDemodulation(const int16_t* rawSamples);
+  static uint32_t isqrt32(uint32_t n);
 
   int16_t _cached_bias = 2048;
   int _frame_count = 0;

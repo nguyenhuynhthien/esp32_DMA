@@ -2,19 +2,40 @@
 #include "ReceiverDMAApp.hpp"
 #include <Arduino.h>
 
+// Định nghĩa các con trỏ bộ đệm toàn cục cho 2 máy thu độc lập (Rx1 có _receiverId = 1, Rx2 có _receiverId = 2)
+uint16_t* g_raw_adc_buffer[2] = {nullptr, nullptr};
+int16_t* g_send_adc_buffer[2] = {nullptr, nullptr};
+int16_t* g_demod_I[2] = {nullptr, nullptr};
+int16_t* g_demod_Q[2] = {nullptr, nullptr};
+
 ReceiverDMAApp::ReceiverDMAApp(AdcDMAService& adcService, uint8_t receiverId)
     : _adcService(adcService), _receiverId(receiverId) {}
 
 void ReceiverDMAApp::init() {
-    // Buffers or additional setup if needed
+    int idx = (_receiverId == 2) ? 1 : 0;
+    
+    // Cấp phát động từ Internal DRAM sử dụng heap_caps_malloc để tránh tràn vùng nhớ tĩnh BSS (.dram0.bss)
+    if (g_raw_adc_buffer[idx] == nullptr) {
+        g_raw_adc_buffer[idx] = (uint16_t*)heap_caps_malloc(Constant::ADC_SAMPLES * sizeof(uint16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (g_send_adc_buffer[idx] == nullptr) {
+        g_send_adc_buffer[idx] = (int16_t*)heap_caps_malloc(Constant::ADC_SAMPLES * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (g_demod_I[idx] == nullptr) {
+        g_demod_I[idx] = (int16_t*)heap_caps_malloc(Constant::ADC_SAMPLES * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (g_demod_Q[idx] == nullptr) {
+        g_demod_Q[idx] = (int16_t*)heap_caps_malloc(Constant::ADC_SAMPLES * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
 }
 
 int16_t ReceiverDMAApp::calculateDcBias() {
+    int idx = (_receiverId == 2) ? 1 : 0;
     if (_frame_count++ % 64 == 0) {
         int32_t sum = 0;
         for (size_t i = 0; i < Constant::ADC_SAMPLES; ++i) {
-            _raw_adc_buffer[i] &= Constant::ADC_RESOLUTION_MAX;
-            sum += _raw_adc_buffer[i];
+            g_raw_adc_buffer[idx][i] &= Constant::ADC_RESOLUTION_MAX;
+            sum += g_raw_adc_buffer[idx][i];
         }
         _cached_bias = sum >> Constant::ADC_SAMPLES_SHIFT;
     }
@@ -29,15 +50,16 @@ inline int16_t saturate16(int32_t val) {
 }
 
 void ReceiverDMAApp::processRawBuffer(int16_t mean) {
-    const uint16_t* p_raw = _raw_adc_buffer;
-    int16_t* p_send = _send_adc_buffer;
+    int idx = (_receiverId == 2) ? 1 : 0;
+    const uint16_t* p_raw = g_raw_adc_buffer[idx];
+    int16_t* p_send = g_send_adc_buffer[idx];
 
 #ifdef SHOW_SAMPLING_LOG
     // Tìm Min/Max thô để chẩn đoán bão hòa phần cứng
     uint16_t raw_min = 4095;
     uint16_t raw_max = 0;
-    for (size_t idx = 0; idx < Constant::ADC_SAMPLES; ++idx) {
-        uint16_t val = p_raw[idx] & Constant::ADC_RESOLUTION_MAX;
+    for (size_t iVal = 0; iVal < Constant::ADC_SAMPLES; ++iVal) {
+        uint16_t val = p_raw[iVal] & Constant::ADC_RESOLUTION_MAX;
         if (val < raw_min) raw_min = val;
         if (val > raw_max) raw_max = val;
     }
@@ -69,9 +91,13 @@ void ReceiverDMAApp::processRawBuffer(int16_t mean) {
 }
 
 void ReceiverDMAApp::applyIirFilter() {
-    static int16_t temp_smooth[Constant::ADC_SAMPLES];
-    const int16_t* p_send = _send_adc_buffer;
-    int16_t* p_smooth = temp_smooth;
+    int idx = (_receiverId == 2) ? 1 : 0;
+    static int16_t* temp_smooth[2] = {nullptr, nullptr};
+    if (temp_smooth[idx] == nullptr) {
+        temp_smooth[idx] = (int16_t*)heap_caps_malloc(Constant::ADC_SAMPLES * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    const int16_t* p_send = g_send_adc_buffer[idx];
+    int16_t* p_smooth = temp_smooth[idx];
     
     p_smooth[0] = p_send[0];
     int16_t prev = p_smooth[0];
@@ -82,15 +108,16 @@ void ReceiverDMAApp::applyIirFilter() {
         prev = (int16_t)(val >> 15);
         p_smooth[i] = prev;
     }
-    memcpy(_send_adc_buffer, temp_smooth, Constant::ADC_SAMPLES * sizeof(int16_t));
+    memcpy(g_send_adc_buffer[idx], temp_smooth[idx], Constant::ADC_SAMPLES * sizeof(int16_t));
 }
 
 int ReceiverDMAApp::findSyncPeak(float txGain) {
+    int idx = (_receiverId == 2) ? 1 : 0;
     // 1. Tìm đỉnh lớn nhất trong cửa sổ tìm kiếm (bỏ qua i = 0 và i = 1 để tránh nhiễu chuyển mạch)
     int16_t local_max = 0;
     for (int i = 2; i < Constant::SYNC_SEARCH_LEN; ++i) {
-        if (_send_adc_buffer[i] > local_max) {
-            local_max = _send_adc_buffer[i];
+        if (g_send_adc_buffer[idx][i] > local_max) {
+            local_max = g_send_adc_buffer[idx][i];
         }
     }
     
@@ -105,7 +132,7 @@ int ReceiverDMAApp::findSyncPeak(float txGain) {
     // 3. Tìm mẫu đầu tiên vượt ngưỡng động này
     int peak_idx = -1;
     for (int i = 2; i < Constant::SYNC_SEARCH_LEN; ++i) {
-        if (_send_adc_buffer[i] > dynamic_threshold) {
+        if (g_send_adc_buffer[idx][i] > dynamic_threshold) {
             peak_idx = i;
             break; // Tìm thấy sườn trước của xung thì dừng ngay
         }
@@ -114,29 +141,38 @@ int ReceiverDMAApp::findSyncPeak(float txGain) {
 }
 
 void ReceiverDMAApp::shiftSignal(int shift) {
+    int idx = (_receiverId == 2) ? 1 : 0;
+    int16_t* p_send = g_send_adc_buffer[idx];
     if (shift > 0) {
         // Dịch trái
         for (size_t i = 0; i < Constant::ADC_SAMPLES - shift; ++i) {
-            _send_adc_buffer[i] = _send_adc_buffer[i + shift];
+            p_send[i] = p_send[i + shift];
         }
-        memset(&_send_adc_buffer[Constant::ADC_SAMPLES - shift], 0, shift * sizeof(int16_t));
+        memset(&p_send[Constant::ADC_SAMPLES - shift], 0, shift * sizeof(int16_t));
     } else {
         // Dịch phải (shift <= 0)
         int rshift = -shift;
         for (int i = (int)Constant::ADC_SAMPLES - 1; i >= rshift; --i) {
-            _send_adc_buffer[i] = _send_adc_buffer[i - rshift];
+            p_send[i] = p_send[i - rshift];
         }
-        memset(_send_adc_buffer, 0, rshift * sizeof(int16_t));
+        memset(p_send, 0, rshift * sizeof(int16_t));
     }
 }
 
-void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, double priMs, double txPriMs, double txFsKhz, uint64_t adcStartTime) {
+void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t frameId, double priMs, double txPriMs, double txFsKhz, uint64_t adcStartTime) {
+    int idx = (_receiverId == 2) ? 1 : 0;
+    
+    // Đảm bảo buffer đã được cấp phát trước khi truy xuất
+    if (g_raw_adc_buffer[idx] == nullptr || g_send_adc_buffer[idx] == nullptr) {
+        init();
+    }
+    
 #ifdef SHOW_SAMPLING_LOG
     uint64_t start_time = (adcStartTime != 0) ? adcStartTime : esp_timer_get_time();
 #endif
     size_t bytes_read = 0;
 
-    esp_err_t res = _adcService.readSamples(_raw_adc_buffer, sizeof(_raw_adc_buffer), bytes_read);
+    esp_err_t res = _adcService.readSamples(g_raw_adc_buffer[idx], Constant::ADC_SAMPLES * sizeof(uint16_t), bytes_read);
 #ifdef SHOW_SAMPLING_LOG
     uint64_t elapsed_time = (adcStartTime != 0 || start_time != 0) ? (esp_timer_get_time() - start_time) : 0;
 #endif
@@ -151,7 +187,7 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
     last_rx_start_time = current_rx_start_time;
 #endif
 
-    if (res == ESP_OK && bytes_read == sizeof(_raw_adc_buffer)) {
+    if (res == ESP_OK && bytes_read == Constant::ADC_SAMPLES * sizeof(uint16_t)) {
 #ifdef SHOW_SAMPLING_LOG
         double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
 #endif
@@ -188,12 +224,45 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
         }
 #endif
 
-        // 6. Gửi dữ liệu qua UDP
-        _sendCount++;
-        if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
-            com.sendFrameAsync(frameId++, _send_adc_buffer, Constant::ADC_SAMPLES, _receiverId);
-        } else {
-            frameId++;
+        // 1. Gửi dữ liệu thô (Raw) ngay lập tức nếu đang ở chế độ STREAM_RAW và đúng kênh đang được lựa chọn gửi
+        if (com.getStreamMode() == ComManager::STREAM_RAW) {
+            if (_receiverId == com.getSelectedRxChannel()) {
+                _sendCount++;
+                if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
+                    com.sendFrameAsync(frameId, g_send_adc_buffer[idx], Constant::ADC_SAMPLES, _receiverId);
+                }
+            }
+        }
+
+        // 2. DẬP XUNG (Luôn diễn ra) & GIẢI ĐIỀU CHẾ
+        // Dập xung phát rò rỉ Tx về mức bias (0 trong dải Q15) theo chiều dài xung trước khi giải điều chế
+        size_t blankSamples = (com.getPulseType() == ComManager::PULSE_SINGLE) 
+                            ? (Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING)
+                            : (Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING);
+        for (size_t n = 0; n < blankSamples; ++n) {
+            if (n < Constant::ADC_SAMPLES) {
+                g_send_adc_buffer[idx][n] = 0;
+            }
+        }
+
+        performIQDemodulation(g_send_adc_buffer[idx]);
+        for (size_t n = 0; n < Constant::ADC_SAMPLES; ++n) {
+            int32_t abs_I = abs((int32_t)g_demod_I[idx][n]);
+            int32_t abs_Q = abs((int32_t)g_demod_Q[idx][n]);
+            int32_t max_val = (abs_I > abs_Q) ? abs_I : abs_Q;
+            int32_t min_val = (abs_I > abs_Q) ? abs_Q : abs_I;
+            int32_t amp = max_val + ((3 * min_val) >> 3);
+            g_send_adc_buffer[idx][n] = (int16_t)((amp > Constant::Q15_MAX) ? Constant::Q15_MAX : amp);
+        }
+
+        // 3. Gửi dữ liệu giải điều chế nếu đang ở chế độ STREAM_DEMOD và đúng kênh đang được lựa chọn gửi
+        if (com.getStreamMode() == ComManager::STREAM_DEMOD) {
+            if (_receiverId == com.getSelectedRxChannel()) {
+                _sendCount++;
+                if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
+                    com.sendFrameAsync(frameId, g_send_adc_buffer[idx], Constant::ADC_SAMPLES, _receiverId);
+                }
+            }
         }
     } else {
         Serial.printf("Lỗi đọc I2S: %d, số bytes đọc được: %u\n", res, bytes_read);
@@ -202,8 +271,15 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t& frameId, doubl
 
 void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16_t frameId, double priMs, double txPriMs, double txFsKhz, uint64_t elapsed_time, 
                              bool txEnabled) {
+    int idx = (_receiverId == 2) ? 1 : 0;
+    
+    // Đảm bảo buffer đã được cấp phát trước khi truy xuất
+    if (g_raw_adc_buffer[idx] == nullptr || g_send_adc_buffer[idx] == nullptr) {
+        init();
+    }
+    
     // Sao chép buffer thô vào bộ nhớ cục bộ
-    memcpy(_raw_adc_buffer, rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
+    memcpy(g_raw_adc_buffer[idx], rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
 
 #ifdef SHOW_SAMPLING_LOG
     // Tính toán tần số lấy mẫu thực tế dựa trên thời gian thực tế thu nhận
@@ -245,10 +321,107 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
         }
 #endif
 
-        // 6. Gửi dữ liệu qua UDP
-        _sendCount++;
-        if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
-            com.sendFrameAsync(frameId, _send_adc_buffer, Constant::ADC_SAMPLES, _receiverId);
+        // 1. Gửi dữ liệu thô (Raw) ngay lập tức nếu đang ở chế độ STREAM_RAW và đúng kênh đang lựa chọn gửi
+        if (com.getStreamMode() == ComManager::STREAM_RAW) {
+            if (_receiverId == com.getSelectedRxChannel()) {
+                _sendCount++;
+                if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
+                    com.sendFrameAsync(frameId, g_send_adc_buffer[idx], Constant::ADC_SAMPLES, _receiverId);
+                }
+            }
+        }
+
+        // 2. DẬP XUNG (Luôn diễn ra) & GIẢI ĐIỀU CHẾ
+        // Dập xung phát rò rỉ Tx về mức bias (0 trong dải Q15) theo chiều dài xung trước khi giải điều chế
+        size_t blankSamples = (com.getPulseType() == ComManager::PULSE_SINGLE) 
+                            ? (Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING)
+                            : (Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING);
+        for (size_t n = 0; n < blankSamples; ++n) {
+            if (n < Constant::ADC_SAMPLES) {
+                g_send_adc_buffer[idx][n] = 0;
+            }
+        }
+
+        performIQDemodulation(g_send_adc_buffer[idx]);
+        for (size_t n = 0; n < Constant::ADC_SAMPLES; ++n) {
+            int32_t abs_I = abs((int32_t)g_demod_I[idx][n]);
+            int32_t abs_Q = abs((int32_t)g_demod_Q[idx][n]);
+            int32_t max_val = (abs_I > abs_Q) ? abs_I : abs_Q;
+            int32_t min_val = (abs_I > abs_Q) ? abs_Q : abs_I;
+            int32_t amp = max_val + ((3 * min_val) >> 3);
+            g_send_adc_buffer[idx][n] = (int16_t)((amp > Constant::Q15_MAX) ? Constant::Q15_MAX : amp);
+        }
+
+        // 3. Gửi dữ liệu giải điều chế nếu đang ở chế độ STREAM_DEMOD và đúng kênh đang lựa chọn gửi
+        if (com.getStreamMode() == ComManager::STREAM_DEMOD) {
+            if (_receiverId == com.getSelectedRxChannel()) {
+                _sendCount++;
+                if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
+                    com.sendFrameAsync(frameId, g_send_adc_buffer[idx], Constant::ADC_SAMPLES, _receiverId);
+                }
+            }
         }
     }
+}
+
+void ReceiverDMAApp::performIQDemodulation(const int16_t* rawSamples) {
+    int idx = (_receiverId == 2) ? 1 : 0;
+    
+    // Đảm bảo buffer đã được cấp phát trước khi truy xuất
+    if (g_demod_I[idx] == nullptr || g_demod_Q[idx] == nullptr) {
+        init();
+    }
+    
+    // Giải điều chế I/Q sóng mang 40kHz với fs = 160kHz (Loop Unrolled 4x để tránh rẽ nhánh CPU)
+    for (size_t n = 0; n < Constant::ADC_SAMPLES; n += 4) {
+        g_demod_I[idx][n]     = rawSamples[n];
+        g_demod_Q[idx][n]     = 0;
+        
+        g_demod_I[idx][n + 1] = 0;
+        g_demod_Q[idx][n + 1] = -rawSamples[n + 1];
+        
+        g_demod_I[idx][n + 2] = -rawSamples[n + 2];
+        g_demod_Q[idx][n + 2] = 0;
+        
+        g_demod_I[idx][n + 3] = 0;
+        g_demod_Q[idx][n + 3] = rawSamples[n + 3];
+    }
+
+    // Bộ lọc trung bình trượt 4 mẫu tối ưu hóa In-place (tránh malloc và memcpy bổ sung)
+    int32_t sumI = 0, sumQ = 0;
+    int16_t* pI = g_demod_I[idx];
+    int16_t* pQ = g_demod_Q[idx];
+    
+    sumI = (int32_t)pI[0] + pI[1] + pI[2];
+    sumQ = (int32_t)pQ[0] + pQ[1] + pQ[2];
+
+    for (size_t n = 3; n < Constant::ADC_SAMPLES; ++n) {
+        sumI += pI[n];
+        sumQ += pQ[n];
+        
+        pI[n - 3] = (int16_t)(sumI >> 2); // Chia cho DEMOD_AVG_LEN = 4
+        pQ[n - 3] = (int16_t)(sumQ >> 2);
+        
+        sumI -= pI[n - 3];
+        sumQ -= pQ[n - 3];
+    }
+}
+
+// Fast integer square root (Giữ lại để đảm bảo tương thích giao diện lớp nếu có file khác extern gọi, hoặc có thể lược bỏ)
+uint32_t ReceiverDMAApp::isqrt32(uint32_t n) {
+    uint32_t root = 0;
+    uint32_t bit = 1 << 30;
+    while (bit > n) {
+        bit >>= 2;
+    }
+    while (bit != 0) {
+        if (n >= root + bit) {
+            n -= root + bit;
+            root = (root >> 1) + bit;
+        } else {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    return root;
 }
