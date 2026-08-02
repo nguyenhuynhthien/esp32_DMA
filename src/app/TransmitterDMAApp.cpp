@@ -56,8 +56,13 @@ uint32_t IRAM_ATTR TransmitterDMAApp::transmitSimulationBurst(ComManager::PulseT
         source_pulse = _barker13_pulse;
     }
 
+    // Đảm bảo delaySamples lớn hơn pulse_len
+    if (delaySamples < pulse_len) {
+        return 0;
+    }
+
     // Đảm bảo không tràn buffer _burst_buffer (kích thước tối đa là 800)
-    if (pulse_len * 2 + delaySamples > 800) {
+    if (pulse_len + delaySamples > 800) {
         return 0;
     }
 
@@ -70,8 +75,9 @@ uint32_t IRAM_ATTR TransmitterDMAApp::transmitSimulationBurst(ComManager::PulseT
         _burst_buffer[write_idx++] = (uint8_t)constrain(val, Constant::DAC_MIN_VAL, Constant::DAC_MAX_VAL);
     }
 
-    // 2. Điền khoảng lặng (mức bias 127) tương ứng với delaySamples
-    for (size_t i = 0; i < delaySamples; ++i) {
+    // 2. Điền khoảng lặng (mức bias 127) tương ứng với delaySamples - pulse_len
+    size_t silence_samples = delaySamples - pulse_len;
+    for (size_t i = 0; i < silence_samples; ++i) {
         _burst_buffer[write_idx++] = Constant::DAC_DC_BIAS;
     }
 
