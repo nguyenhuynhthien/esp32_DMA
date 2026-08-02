@@ -66,11 +66,11 @@ void IRAM_ATTR AdcDMASignal::start() {
     uint8_t entry0 = (ADC1_CHANNEL_4 << 4) | (3 << 2) | 3; // Kênh 4 (GPIO 32)
     uint8_t entry1 = (ADC1_CHANNEL_5 << 4) | (3 << 2) | 3; // Kênh 5 (GPIO 33)
 
-    SYSCON.saradc_ctrl.sar1_patt_len = 1;
-    SYSCON.saradc_sar1_patt_tab[0] = (entry0 << 24) | (entry1 << 16) | 0xFFFF;
+    SYSCON.saradc_ctrl.sar1_patt_len = 3; // Sử dụng toàn bộ 4 entry (0 đến 3) để tạo chu kỳ lặp đối xứng hoàn hảo
+    SYSCON.saradc_sar1_patt_tab[0] = (entry0 << 24) | (entry1 << 16) | (entry0 << 8) | entry1; // [CH4] [CH5] [CH4] [CH5]
 
-    SYSCON.saradc_ctrl.sar_clk_div = 4; // Tăng tốc độ lấy mẫu ADC lên 320 kHz tổng hợp
-    SYSCON.saradc_fsm.sample_cycle = 9; // Giữ chu kỳ lấy mẫu để nạp đầy điện áp tụ
+    SYSCON.saradc_ctrl.sar_clk_div = 5; // Cấu hình clock ADC là 13.33 MHz (APB/6) để đạt sự cân bằng tối ưu giữa FSM và bộ so sánh
+    SYSCON.saradc_fsm.sample_cycle = 9; // Cấu hình chu kỳ nạp tụ là 9 (750ns ở 13.33 MHz) để đảm bảo tụ analog sạc/xả đầy biên độ
 
     // 4. Thiết lập trực tiếp thanh ghi suy hao của ADC1 để cố định 11dB cho toàn bộ kênh
     SENS.sar_atten1 = 0xFFFF;

@@ -12,7 +12,7 @@ class SimulatorDMAApp {
 public:
     SimulatorDMAApp();
     void init();
-    void fireSimulatedTransmission(TransmitterDMAApp& transmitterApp, ComManager::PulseType pulseType, float txGain);
+    uint32_t fireSimulatedTransmission(TransmitterDMAApp& transmitterApp, ComManager::PulseType pulseType, float txGain);
 
 private:
     static constexpr size_t NOISE_TABLE_SIZE = 512;

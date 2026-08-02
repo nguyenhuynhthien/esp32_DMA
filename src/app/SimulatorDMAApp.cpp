@@ -29,9 +29,9 @@ void SimulatorDMAApp::init() {
     }
 }
 
-void SimulatorDMAApp::fireSimulatedTransmission(TransmitterDMAApp& transmitterApp, ComManager::PulseType pulseType, float txGain) {
+uint32_t SimulatorDMAApp::fireSimulatedTransmission(TransmitterDMAApp& transmitterApp, ComManager::PulseType pulseType, float txGain) {
     // Phát chuỗi xung ghép (xung gốc + khoảng lặng 500 mẫu + xung echo) một lần duy nhất ra DAC
-    transmitterApp.transmitSimulationBurst(pulseType, txGain, Constant::SIMULATOR_DELAY_SAMPLES, 0.15f);
+    return transmitterApp.transmitSimulationBurst(pulseType, txGain, Constant::SIMULATOR_DELAY_SAMPLES, 0.15f);
 }
 
 #endif // SIMULATION_MODE

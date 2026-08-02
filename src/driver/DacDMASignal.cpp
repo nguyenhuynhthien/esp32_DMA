@@ -1,5 +1,6 @@
 #include "DacDMASignal.hpp"
 #include <Constant.h>
+#include <xtensa/hal.h>
 
 DacDMASignal::DacDMASignal() {}
 
@@ -16,6 +17,10 @@ uint32_t IRAM_ATTR DacDMASignal::firePulse(const uint8_t* pulse, size_t length) 
     uint32_t cpu_freq_mhz = ESP.getCpuFreqMHz();
     uint32_t cycles_per_sample = (uint32_t)(cpu_freq_mhz * Constant::CPU_CYCLES_PER_SAMPLE_FACTOR);
 
+    // Vô hiệu hóa ngắt cục bộ trên Core 0 (không dùng spinlock liên lõi để tránh treo Core 1 phục vụ I2S DMA)
+    unsigned int old_int_level;
+    __asm__ __volatile__("rsil %0, 15" : "=a" (old_int_level));
+
     uint32_t start_cycles = get_ccount();
     for (size_t i = 0; i < length; ++i) {
         dac_output_voltage(DAC_CHANNEL_1, pulse[i]);
@@ -23,12 +28,15 @@ uint32_t IRAM_ATTR DacDMASignal::firePulse(const uint8_t* pulse, size_t length) 
             // Spin-wait
         }
     }
-#ifdef SHOW_SAMPLING_LOG
+
     uint32_t elapsed_cycles = get_ccount() - start_cycles;
-#endif
 
     // Return to bias after firing
     dac_output_voltage(DAC_CHANNEL_1, Constant::DAC_DC_BIAS);
+
+    // Khôi phục lại mức ngắt cũ trên Core 0
+    __asm__ __volatile__("wsr %0, ps; rsync" : : "a" (old_int_level));
+
 #ifdef SHOW_SAMPLING_LOG
     return elapsed_cycles;
 #else
