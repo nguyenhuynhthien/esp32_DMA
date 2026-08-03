@@ -373,33 +373,47 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
         uint32_t coeff_cpu_cycles = readCpuCycleCount() - coeff_cpu_start;
         uint64_t coeff_wall_us = esp_timer_get_time() - coeff_wall_start;
 
-        if (com.getStreamMode() == ComManager::STREAM_COMPRESSED) {
-            const bool captureDspTiming =
-                (++g_dspTimingFrameCount[idx] % Constant::DIAG_LOG_DIVIDER) == 0;
-            uint32_t mf_cpu_start = readCpuCycleCount();
-            performMatchedFiltering();
-            uint32_t mf_cpu_cycles = readCpuCycleCount() - mf_cpu_start;
-            uint64_t dsp_t_filter = esp_timer_get_time();
-            for (size_t n = 0; n < Constant::ADC_SAMPLES; ++n) {
-                int32_t absI = abs((int32_t)g_compressed_I[idx][n]);
-                int32_t absQ = abs((int32_t)g_compressed_Q[idx][n]);
-                int32_t maxVal = (absI > absQ) ? absI : absQ;
-                int32_t minVal = (absI > absQ) ? absQ : absI;
-                int32_t amp = maxVal + ((3 * minVal) >> 3);
-                
-                // Scale up matched filter output for display/transmission
-                int32_t scaled_amp = amp * Constant::COMPRESSED_STREAM_SCALE;
-                g_send_adc_buffer[idx][n] = saturate16(scaled_amp);
-            }
-            uint64_t dsp_t_magnitude = esp_timer_get_time();
+        const bool captureDspTiming =
+            (++g_dspTimingFrameCount[idx] % Constant::DIAG_LOG_DIVIDER) == 0;
+        uint32_t mf_cpu_start = readCpuCycleCount();
+        performMatchedFiltering();
+        uint32_t mf_cpu_cycles = readCpuCycleCount() - mf_cpu_start;
+        uint64_t dsp_t_filter = esp_timer_get_time();
 
-            // Gửi dữ liệu nén xung nếu đang ở chế độ STREAM_COMPRESSED và đúng kênh đang lựa chọn gửi
-            if (_receiverId == com.getSelectedRxChannel()) {
-                _sendCount++;
-                if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
-                    com.sendFrameAsync(frameId, g_send_adc_buffer[idx], Constant::ADC_SAMPLES, _receiverId);
+        // Always build the compressed magnitude. Stream mode only selects the payload below.
+        for (size_t n = 0; n < Constant::ADC_SAMPLES; ++n) {
+            int32_t absI = abs((int32_t)g_compressed_I[idx][n]);
+            int32_t absQ = abs((int32_t)g_compressed_Q[idx][n]);
+            int32_t maxVal = (absI > absQ) ? absI : absQ;
+            int32_t minVal = (absI > absQ) ? absQ : absI;
+            int32_t amp = maxVal + ((3 * minVal) >> 3);
+            g_compressed_I[idx][n] = saturate16(amp * Constant::COMPRESSED_STREAM_SCALE);
+        }
+
+        // Always build the demodulated magnitude as well.
+        for (size_t n = 0; n < Constant::ADC_SAMPLES; ++n) {
+            int32_t absI = abs((int32_t)g_demod_I[idx][n]);
+            int32_t absQ = abs((int32_t)g_demod_Q[idx][n]);
+            int32_t maxVal = (absI > absQ) ? absI : absQ;
+            int32_t minVal = (absI > absQ) ? absQ : absI;
+            int32_t amp = maxVal + ((3 * minVal) >> 3);
+            g_compressed_Q[idx][n] = saturate16(amp);
+        }
+        uint64_t dsp_t_magnitude = esp_timer_get_time();
+
+        if (_receiverId == com.getSelectedRxChannel() &&
+            com.getStreamMode() != ComManager::STREAM_RAW) {
+            _sendCount++;
+            if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
+                const int16_t* output = g_compressed_Q[idx];
+                if (com.getStreamMode() == ComManager::STREAM_DEMOD) {
+                    output = g_compressed_Q[idx];
+                } else if (com.getStreamMode() == ComManager::STREAM_COMPRESSED) {
+                    output = g_compressed_I[idx];
                 }
+                com.sendFrameAsync(frameId, output, Constant::ADC_SAMPLES, _receiverId);
             }
+        }
 
 #ifdef SHOW_TIMING_LOG
             if (captureDspTiming) {
@@ -435,26 +449,6 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
                 log.pending = true;
             }
 #endif
-        } else {
-            for (size_t n = 0; n < Constant::ADC_SAMPLES; ++n) {
-                int32_t abs_I = abs((int32_t)g_demod_I[idx][n]);
-                int32_t abs_Q = abs((int32_t)g_demod_Q[idx][n]);
-                int32_t max_val = (abs_I > abs_Q) ? abs_I : abs_Q;
-                int32_t min_val = (abs_I > abs_Q) ? abs_Q : abs_I;
-                int32_t amp = max_val + ((3 * min_val) >> 3);
-                g_send_adc_buffer[idx][n] = (int16_t)((amp > Constant::Q15_MAX) ? Constant::Q15_MAX : amp);
-            }
-
-            // 3. Gửi dữ liệu giải điều chế nếu đang ở chế độ STREAM_DEMOD và đúng kênh đang lựa chọn gửi
-            if (com.getStreamMode() == ComManager::STREAM_DEMOD) {
-                if (_receiverId == com.getSelectedRxChannel()) {
-                    _sendCount++;
-                    if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
-                        com.sendFrameAsync(frameId, g_send_adc_buffer[idx], Constant::ADC_SAMPLES, _receiverId);
-                    }
-                }
-            }
-        }
     }
 }
 
