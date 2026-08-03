@@ -132,12 +132,16 @@ void setup() {
   xTaskCreatePinnedToCore(
       [](void *param) {
         Serial.println("Sync Task (Core 1) started.");
+        uint64_t next_deadline_us = esp_timer_get_time();
         while (true) {
           if (com.isStreaming()) {
-            uint64_t start_time = esp_timer_get_time();
-
             // Xác định target PRI (15ms cho Single Pulse, 20ms cho Barker 13)
             double target_pri = (com.getPulseType() == ComManager::PULSE_SINGLE) ? 15.0 : 20.0;
+            uint64_t target_us = (uint64_t)(target_pri * 1000.0);
+            uint64_t start_time = esp_timer_get_time();
+            if (next_deadline_us < start_time) {
+              next_deadline_us = start_time;
+            }
 
             static uint64_t last_time = 0;
             uint64_t current_time = esp_timer_get_time();
@@ -149,13 +153,13 @@ void setup() {
 
             syncApp.runIteration(com, frameId, pri_ms);
 
-            // Bù trễ chính xác cao bằng delayMicroseconds để ổn định chu kỳ PRI cố định
-            uint64_t elapsed_us = esp_timer_get_time() - start_time;
-            uint64_t target_us = (uint64_t)(target_pri * 1000.0);
-            if (elapsed_us < target_us) {
-              delayMicroseconds(target_us - elapsed_us);
+            // Lập lịch theo deadline tuyệt đối để tránh trễ bị cộng dồn qua các frame.
+            next_deadline_us += target_us;
+            uint64_t now_us = esp_timer_get_time();
+            if (now_us < next_deadline_us) {
+              delayMicroseconds(next_deadline_us - now_us);
             } else {
-              // Nếu bị lố thời gian (quá tải), nhường CPU một chút để tránh Watchdog Trigger
+              next_deadline_us = now_us;
               vTaskDelay(0);
             }
           } else {
@@ -163,7 +167,7 @@ void setup() {
           }
         }
       },
-      "SyncTask", 8192, nullptr, 20, nullptr, 1
+      "SyncTask", 8192, nullptr, 24, nullptr, 1
   );
 }
 

@@ -33,6 +33,24 @@ private:
   void performIQDemodulation(const int16_t* rawSamples);
   static uint32_t isqrt32(uint32_t n);
 
+  // Matched filter declarations
+  struct FilterTap {
+      uint8_t k;
+      int16_t val;
+  };
+  FilterTap _tapsI[Constant::BARKER13_PULSE_LEN];
+  FilterTap _tapsQ[Constant::BARKER13_PULSE_LEN];
+  int _numTapsI = 0;
+  int _numTapsQ = 0;
+  int _filterLen = 32;
+  int _matchedFilterShift = 0;
+  ComManager::PulseType _coeffPulseType = ComManager::PULSE_SINGLE;
+  bool _coefficientsInitialized = false;
+
+  void initDSPCoefficients(ComManager::PulseType pulseType);
+  void performMatchedFiltering();
+  void performBarker13MatchedFiltering(int filterEnd, int32_t roundOffset);
+
   int16_t _cached_bias = 2048;
   int _frame_count = 0;
 

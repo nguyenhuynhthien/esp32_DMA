@@ -184,7 +184,9 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
             Serial.printf("\n[DEBUG] RX1 count (unique): %u, RX2 count (unique): %u\n", rx1_count, rx2_count);
         }
 
-        // Xử lý dữ liệu độc lập cho từng Receiver với cùng một frameId
+        // DSP luôn chạy cho cả hai receiver; rx_select chỉ quyết định kênh gửi UDP.
+        // SyncTask có priority cao; không suspend scheduler vì DSP có logging
+        // và các API Arduino có thể cần queue/semaphore.
 #ifdef SHOW_TIMING_LOG
         uint64_t t_start_proc1 = esp_timer_get_time();
 #endif

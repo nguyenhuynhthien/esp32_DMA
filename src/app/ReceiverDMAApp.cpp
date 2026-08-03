@@ -2,11 +2,21 @@
 #include "ReceiverDMAApp.hpp"
 #include <Arduino.h>
 
+static inline uint32_t readCpuCycleCount() {
+    uint32_t cycles;
+    asm volatile("rsr.ccount %0" : "=a"(cycles));
+    return cycles;
+}
+
 // Định nghĩa các con trỏ bộ đệm toàn cục cho 2 máy thu độc lập (Rx1 có _receiverId = 1, Rx2 có _receiverId = 2)
 uint16_t* g_raw_adc_buffer[2] = {nullptr, nullptr};
 int16_t* g_send_adc_buffer[2] = {nullptr, nullptr};
 int16_t* g_demod_I[2] = {nullptr, nullptr};
 int16_t* g_demod_Q[2] = {nullptr, nullptr};
+int16_t* g_compressed_I[2] = {nullptr, nullptr};
+int16_t* g_compressed_Q[2] = {nullptr, nullptr};
+static portMUX_TYPE g_demodCriticalMux = portMUX_INITIALIZER_UNLOCKED;
+
 
 ReceiverDMAApp::ReceiverDMAApp(AdcDMAService& adcService, uint8_t receiverId)
     : _adcService(adcService), _receiverId(receiverId) {}
@@ -26,6 +36,12 @@ void ReceiverDMAApp::init() {
     }
     if (g_demod_Q[idx] == nullptr) {
         g_demod_Q[idx] = (int16_t*)heap_caps_malloc(Constant::ADC_SAMPLES * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (g_compressed_I[idx] == nullptr) {
+        g_compressed_I[idx] = (int16_t*)heap_caps_malloc(Constant::ADC_SAMPLES * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (g_compressed_Q[idx] == nullptr) {
+        g_compressed_Q[idx] = (int16_t*)heap_caps_malloc(Constant::ADC_SAMPLES * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     }
 }
 
@@ -224,46 +240,7 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t frameId, double
         }
 #endif
 
-        // 1. Gửi dữ liệu thô (Raw) ngay lập tức nếu đang ở chế độ STREAM_RAW và đúng kênh đang được lựa chọn gửi
-        if (com.getStreamMode() == ComManager::STREAM_RAW) {
-            if (_receiverId == com.getSelectedRxChannel()) {
-                _sendCount++;
-                if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
-                    com.sendFrameAsync(frameId, g_send_adc_buffer[idx], Constant::ADC_SAMPLES, _receiverId);
-                }
-            }
-        }
-
-        // 2. DẬP XUNG (Luôn diễn ra) & GIẢI ĐIỀU CHẾ
-        // Dập xung phát rò rỉ Tx về mức bias (0 trong dải Q15) theo chiều dài xung trước khi giải điều chế
-        size_t blankSamples = (com.getPulseType() == ComManager::PULSE_SINGLE) 
-                            ? (Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING)
-                            : (Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING);
-        for (size_t n = 0; n < blankSamples; ++n) {
-            if (n < Constant::ADC_SAMPLES) {
-                g_send_adc_buffer[idx][n] = 0;
-            }
-        }
-
-        performIQDemodulation(g_send_adc_buffer[idx]);
-        for (size_t n = 0; n < Constant::ADC_SAMPLES; ++n) {
-            int32_t abs_I = abs((int32_t)g_demod_I[idx][n]);
-            int32_t abs_Q = abs((int32_t)g_demod_Q[idx][n]);
-            int32_t max_val = (abs_I > abs_Q) ? abs_I : abs_Q;
-            int32_t min_val = (abs_I > abs_Q) ? abs_Q : abs_I;
-            int32_t amp = max_val + ((3 * min_val) >> 3);
-            g_send_adc_buffer[idx][n] = (int16_t)((amp > Constant::Q15_MAX) ? Constant::Q15_MAX : amp);
-        }
-
-        // 3. Gửi dữ liệu giải điều chế nếu đang ở chế độ STREAM_DEMOD và đúng kênh đang được lựa chọn gửi
-        if (com.getStreamMode() == ComManager::STREAM_DEMOD) {
-            if (_receiverId == com.getSelectedRxChannel()) {
-                _sendCount++;
-                if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
-                    com.sendFrameAsync(frameId, g_send_adc_buffer[idx], Constant::ADC_SAMPLES, _receiverId);
-                }
-            }
-        }
+        process(g_raw_adc_buffer[idx], com, frameId, rx_pri_ms, txPriMs, txFsKhz, elapsed_time, true);
     } else {
         Serial.printf("Lỗi đọc I2S: %d, số bytes đọc được: %u\n", res, bytes_read);
     }
@@ -278,20 +255,26 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
         init();
     }
     
-    // Sao chép buffer thô vào bộ nhớ cục bộ
-    memcpy(g_raw_adc_buffer[idx], rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
+    // Sao chép buffer thô vào bộ nhớ cục bộ (nếu là con trỏ khác g_send_adc_buffer[idx] hoặc rawSamples không phải g_raw_adc_buffer[idx])
+    if (g_raw_adc_buffer[idx] != rawSamples) {
+        memcpy(g_raw_adc_buffer[idx], rawSamples, Constant::ADC_SAMPLES * sizeof(uint16_t));
+    }
 
 #ifdef SHOW_SAMPLING_LOG
     // Tính toán tần số lấy mẫu thực tế dựa trên thời gian thực tế thu nhận
     double fs_actual = (double)(Constant::ADC_SAMPLES) * 1000000.0 / (double)elapsed_time;
 #endif
 
+    uint64_t dsp_t0 = esp_timer_get_time();
+
     // 1. DC bias & normalization
     int16_t mean = calculateDcBias();
     processRawBuffer(mean);
+    uint64_t dsp_t_raw = esp_timer_get_time();
 
     // 2. IIR filter
     applyIirFilter();
+    uint64_t dsp_t_iir = esp_timer_get_time();
 
     // 3. Peak detection (Only when Tx is enabled)
     bool has_valid_signal = true;
@@ -311,6 +294,7 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
             shiftSignal(shift);
         }
     }
+    uint64_t dsp_t_sync = esp_timer_get_time();
 
     if (!txEnabled || has_valid_signal) {
 #ifdef SHOW_SAMPLING_LOG
@@ -336,28 +320,107 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
         size_t blankSamples = (com.getPulseType() == ComManager::PULSE_SINGLE) 
                             ? (Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING)
                             : (Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING);
-        for (size_t n = 0; n < blankSamples; ++n) {
-            if (n < Constant::ADC_SAMPLES) {
-                g_send_adc_buffer[idx][n] = 0;
-            }
-        }
+        uint64_t blank_wall_start = esp_timer_get_time();
+        portENTER_CRITICAL(&g_demodCriticalMux);
+        memset(g_send_adc_buffer[idx], 0, blankSamples * sizeof(int16_t));
+        uint64_t blank_wall_end = esp_timer_get_time();
 
+        uint64_t demod_wall_start = esp_timer_get_time();
+        uint32_t demod_cpu_start = readCpuCycleCount();
         performIQDemodulation(g_send_adc_buffer[idx]);
-        for (size_t n = 0; n < Constant::ADC_SAMPLES; ++n) {
-            int32_t abs_I = abs((int32_t)g_demod_I[idx][n]);
-            int32_t abs_Q = abs((int32_t)g_demod_Q[idx][n]);
-            int32_t max_val = (abs_I > abs_Q) ? abs_I : abs_Q;
-            int32_t min_val = (abs_I > abs_Q) ? abs_Q : abs_I;
-            int32_t amp = max_val + ((3 * min_val) >> 3);
-            g_send_adc_buffer[idx][n] = (int16_t)((amp > Constant::Q15_MAX) ? Constant::Q15_MAX : amp);
-        }
+        portEXIT_CRITICAL(&g_demodCriticalMux);
+        uint32_t demod_cpu_cycles = readCpuCycleCount() - demod_cpu_start;
+        uint64_t demod_wall_us = esp_timer_get_time() - demod_wall_start;
+        uint64_t dsp_t_demod = demod_wall_start + demod_wall_us;
 
-        // 3. Gửi dữ liệu giải điều chế nếu đang ở chế độ STREAM_DEMOD và đúng kênh đang lựa chọn gửi
-        if (com.getStreamMode() == ComManager::STREAM_DEMOD) {
+        // Cập nhật hệ số chỉ khi loại xung thay đổi.
+        uint64_t coeff_wall_start = esp_timer_get_time();
+        uint32_t coeff_cpu_start = readCpuCycleCount();
+        if (!_coefficientsInitialized || _coeffPulseType != com.getPulseType()) {
+            initDSPCoefficients(com.getPulseType());
+            _coeffPulseType = com.getPulseType();
+            _coefficientsInitialized = true;
+        }
+        uint32_t coeff_cpu_cycles = readCpuCycleCount() - coeff_cpu_start;
+        uint64_t coeff_wall_us = esp_timer_get_time() - coeff_wall_start;
+
+        if (com.getStreamMode() == ComManager::STREAM_COMPRESSED) {
+            uint32_t mf_cpu_start = readCpuCycleCount();
+            performMatchedFiltering();
+            uint32_t mf_cpu_cycles = readCpuCycleCount() - mf_cpu_start;
+            uint64_t dsp_t_filter = esp_timer_get_time();
+            for (size_t n = 0; n < Constant::ADC_SAMPLES; ++n) {
+                int32_t absI = abs((int32_t)g_compressed_I[idx][n]);
+                int32_t absQ = abs((int32_t)g_compressed_Q[idx][n]);
+                int32_t maxVal = (absI > absQ) ? absI : absQ;
+                int32_t minVal = (absI > absQ) ? absQ : absI;
+                int32_t amp = maxVal + ((3 * minVal) >> 3);
+                
+                // Scale up matched filter output for display/transmission
+                int32_t scaled_amp = amp * Constant::COMPRESSED_STREAM_SCALE;
+                g_send_adc_buffer[idx][n] = saturate16(scaled_amp);
+            }
+            uint64_t dsp_t_magnitude = esp_timer_get_time();
+
+            // Gửi dữ liệu nén xung nếu đang ở chế độ STREAM_COMPRESSED và đúng kênh đang lựa chọn gửi
             if (_receiverId == com.getSelectedRxChannel()) {
                 _sendCount++;
                 if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
                     com.sendFrameAsync(frameId, g_send_adc_buffer[idx], Constant::ADC_SAMPLES, _receiverId);
+                }
+            }
+
+#ifdef SHOW_TIMING_LOG
+            if (_loopCount % Constant::DIAG_LOG_DIVIDER == 0) {
+                uint32_t cpu_freq_mhz = ESP.getCpuFreqMHz();
+                uint64_t demod_cpu_us = (cpu_freq_mhz > 0)
+                                      ? (demod_cpu_cycles / cpu_freq_mhz)
+                                      : demod_wall_us;
+                uint64_t blank_us = blank_wall_end - blank_wall_start;
+                uint64_t pre_blank_us = blank_wall_start - dsp_t_sync;
+                uint64_t mf_wall_us = dsp_t_filter - (demod_wall_start + demod_wall_us);
+                uint64_t magnitude_us = dsp_t_magnitude - dsp_t_filter;
+                uint64_t accounted_us = (dsp_t_sync - dsp_t0) + pre_blank_us + blank_us + demod_wall_us
+                                      + coeff_wall_us + mf_wall_us + magnitude_us;
+                uint64_t unexplained_us = (dsp_t_magnitude - dsp_t0 > accounted_us)
+                                        ? (dsp_t_magnitude - dsp_t0 - accounted_us)
+                                        : 0;
+                Serial.printf("[DSP RX%d] raw=%llu us | iir=%llu us | sync=%llu us | pre_blank=%llu us | blank=%llu us | demod=%llu us (wall=%llu us, %u cycles) | coeff=%llu us (%u cycles) | mf=%llu us (%u cycles) | mag=%llu us | unexplained=%llu us | total=%llu us\n",
+                              _receiverId,
+                              dsp_t_raw - dsp_t0,
+                              dsp_t_iir - dsp_t_raw,
+                              dsp_t_sync - dsp_t_iir,
+                              pre_blank_us,
+                              blank_us,
+                              demod_cpu_us,
+                              demod_wall_us,
+                              demod_cpu_cycles,
+                              coeff_wall_us,
+                              coeff_cpu_cycles,
+                              mf_wall_us,
+                              mf_cpu_cycles,
+                              magnitude_us,
+                              unexplained_us,
+                              dsp_t_magnitude - dsp_t0);
+            }
+#endif
+        } else {
+            for (size_t n = 0; n < Constant::ADC_SAMPLES; ++n) {
+                int32_t abs_I = abs((int32_t)g_demod_I[idx][n]);
+                int32_t abs_Q = abs((int32_t)g_demod_Q[idx][n]);
+                int32_t max_val = (abs_I > abs_Q) ? abs_I : abs_Q;
+                int32_t min_val = (abs_I > abs_Q) ? abs_Q : abs_I;
+                int32_t amp = max_val + ((3 * min_val) >> 3);
+                g_send_adc_buffer[idx][n] = (int16_t)((amp > Constant::Q15_MAX) ? Constant::Q15_MAX : amp);
+            }
+
+            // 3. Gửi dữ liệu giải điều chế nếu đang ở chế độ STREAM_DEMOD và đúng kênh đang lựa chọn gửi
+            if (com.getStreamMode() == ComManager::STREAM_DEMOD) {
+                if (_receiverId == com.getSelectedRxChannel()) {
+                    _sendCount++;
+                    if (_sendCount % Constant::UDP_SEND_DIVIDER == 0) {
+                        com.sendFrameAsync(frameId, g_send_adc_buffer[idx], Constant::ADC_SAMPLES, _receiverId);
+                    }
                 }
             }
         }
@@ -424,4 +487,170 @@ uint32_t ReceiverDMAApp::isqrt32(uint32_t n) {
         bit >>= 2;
     }
     return root;
+}
+
+void ReceiverDMAApp::initDSPCoefficients(ComManager::PulseType pulseType) {
+    int pulseLen = (pulseType == ComManager::PULSE_SINGLE) ? Constant::FILTER_COEFFS_LEN : Constant::BARKER13_PULSE_LEN;
+    const uint8_t* txWave = (pulseType == ComManager::PULSE_SINGLE) ? Constant::SINGLE_PULSE_WAVE : Constant::BARKER13_PULSE_WAVE;
+
+    _filterLen = pulseLen;
+    _numTapsI = 0;
+    _numTapsQ = 0;
+
+    // Pre-calculate sparse non-zero taps for time-reversed conjugate matched filter h(t) = s*(T - t)
+    for (int i = 0; i < pulseLen; ++i) {
+        int16_t x = (int16_t)txWave[i] - Constant::DAC_DC_BIAS;
+
+        int16_t refCos = 0;
+        int16_t refSin = 0;
+        switch (i & 3) {
+        case 0:
+            refCos = Constant::Q15_MAX;
+            refSin = 0;
+            break;
+        case 1:
+            refCos = 0;
+            refSin = Constant::Q15_MAX;
+            break;
+        case 2:
+            refCos = Constant::Q15_MIN;
+            refSin = 0;
+            break;
+        case 3:
+            refCos = 0;
+            refSin = Constant::Q15_MIN;
+            break;
+        }
+
+        int filterIdx = pulseLen - 1 - i;
+        int16_t hI = (int16_t)(((int32_t)x * refCos) >> 15);
+        int16_t hQ = - (int16_t)(((int32_t)x * refSin) >> 15);
+
+        // dotprod đọc cửa sổ theo chiều tiến, nên hệ số phải đảo lại để
+        // tương đương demod[n - k] * filter[k] của kernel cũ.
+
+        if (hI != 0) {
+            _tapsI[_numTapsI++] = { (uint8_t)filterIdx, hI };
+        }
+        if (hQ != 0) {
+            _tapsQ[_numTapsQ++] = { (uint8_t)filterIdx, hQ };
+        }
+    }
+
+    // Dynamically calculate Matched Filter shift power-of-two exponent based on active filter taps
+    int maxTaps = (_numTapsI > _numTapsQ) ? _numTapsI : _numTapsQ;
+    if (maxTaps <= 0) maxTaps = 1;
+
+    _matchedFilterShift = 0;
+    while ((1 << _matchedFilterShift) < maxTaps) {
+        _matchedFilterShift++;
+    }
+    constexpr int BASE_Q15_SHIFT = 7;
+    _matchedFilterShift += BASE_Q15_SHIFT;
+}
+
+void ReceiverDMAApp::performMatchedFiltering() {
+    int idx = (_receiverId == 2) ? 1 : 0;
+    int16_t* demodI = g_demod_I[idx];
+    int16_t* demodQ = g_demod_Q[idx];
+    int16_t* compressedI = g_compressed_I[idx];
+    int16_t* compressedQ = g_compressed_Q[idx];
+
+    if (!demodI || !demodQ || !compressedI || !compressedQ)
+        return;
+
+    int32_t roundOffset = 1 << (_matchedFilterShift - 1);
+
+    const int filterEnd = _filterLen - 1;
+    // Startup: chỉ phần đầu mới cần bỏ qua các tap vượt quá biên buffer.
+    for (int n = 0; n < filterEnd; ++n) {
+        int32_t sumI = 0;
+        int32_t sumQ = 0;
+
+        for (int t = 0; t < _numTapsI; ++t) {
+            int k = _tapsI[t].k;
+            if (k > n) continue;
+            int16_t cI = _tapsI[t].val;
+            sumI += (int32_t)demodI[n - k] * cI;
+            sumQ += (int32_t)demodQ[n - k] * cI;
+        }
+
+        for (int t = 0; t < _numTapsQ; ++t) {
+            int k = _tapsQ[t].k;
+            if (k > n) continue;
+            int16_t cQ = _tapsQ[t].val;
+            sumI -= (int32_t)demodQ[n - k] * cQ;
+            sumQ += (int32_t)demodI[n - k] * cQ;
+        }
+
+        compressedI[n] = saturate16((sumI + roundOffset) >> _matchedFilterShift);
+        compressedQ[n] = saturate16((sumQ + roundOffset) >> _matchedFilterShift);
+    }
+
+    if (_filterLen == (int)Constant::BARKER13_PULSE_LEN) {
+        performBarker13MatchedFiltering(filterEnd, roundOffset);
+        return;
+    }
+
+    // Steady-state: toàn bộ tap đều hợp lệ, không cần branch k > n.
+    for (int n = filterEnd; n < (int)Constant::ADC_SAMPLES; ++n) {
+        int32_t sumI = 0;
+        int32_t sumQ = 0;
+
+        for (int t = 0; t < _numTapsI; ++t) {
+            int16_t coefficient = _tapsI[t].val;
+            int offset = _tapsI[t].k;
+            int16_t sampleI = demodI[n - offset];
+            int16_t sampleQ = demodQ[n - offset];
+            sumI += (int32_t)sampleI * coefficient;
+            sumQ += (int32_t)sampleQ * coefficient;
+        }
+
+        for (int t = 0; t < _numTapsQ; ++t) {
+            int16_t coefficient = _tapsQ[t].val;
+            int offset = _tapsQ[t].k;
+            int16_t sampleI = demodI[n - offset];
+            int16_t sampleQ = demodQ[n - offset];
+            sumI -= (int32_t)sampleQ * coefficient;
+            sumQ += (int32_t)sampleI * coefficient;
+        }
+
+        compressedI[n] = saturate16((sumI + roundOffset) >> _matchedFilterShift);
+        compressedQ[n] = saturate16((sumQ + roundOffset) >> _matchedFilterShift);
+    }
+}
+
+void ReceiverDMAApp::performBarker13MatchedFiltering(int filterEnd, int32_t roundOffset) {
+    const int idx = (_receiverId == 2) ? 1 : 0;
+    int16_t* demodI = g_demod_I[idx];
+    int16_t* demodQ = g_demod_Q[idx];
+    int16_t* compressedI = g_compressed_I[idx];
+    int16_t* compressedQ = g_compressed_Q[idx];
+    static constexpr int8_t chipSigns[13] = {
+        1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1
+    };
+    constexpr int16_t coefficientMagnitude = 126;
+
+    for (int n = filterEnd; n < (int)Constant::ADC_SAMPLES; ++n) {
+        int32_t sumI = 0;
+        int32_t sumQ = 0;
+
+        for (int chip = 0; chip < 13; ++chip) {
+            const int coefficient = chipSigns[chip] * coefficientMagnitude;
+            const int base = 8 * chip;
+
+            // DAC waveform is {0, +127, 0, -127} after bias removal.
+            // Therefore Barker13 has Q taps only at carrier phases 1 and 3.
+            int k = 102 - base;
+            sumI += coefficient * (demodQ[n - k] + demodQ[n - (k - 2)]);
+            sumQ -= coefficient * (demodI[n - k] + demodI[n - (k - 2)]);
+
+            k -= 4;
+            sumI += coefficient * (demodQ[n - k] + demodQ[n - (k - 2)]);
+            sumQ -= coefficient * (demodI[n - k] + demodI[n - (k - 2)]);
+        }
+
+        compressedI[n] = saturate16((sumI + roundOffset) >> _matchedFilterShift);
+        compressedQ[n] = saturate16((sumQ + roundOffset) >> _matchedFilterShift);
+    }
 }

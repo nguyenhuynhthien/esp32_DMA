@@ -208,14 +208,16 @@ constexpr uint8_t SINGLE_PULSE_WAVE[FILTER_COEFFS_LEN] = {127, 254, 127, 0,
 
 // Pre-calculated Barker 13 waveform (13 chips, 2 cycles of 4 samples/cycle per
 // chip = 8 samples/chip, total 104 samples)
+#define BARKER_CHIP_POSITIVE 127, 254, 127, 0, 127, 254, 127, 0
+#define BARKER_CHIP_NEGATIVE 127, 0, 127, 254, 127, 0, 127, 254
 constexpr uint8_t BARKER13_PULSE_WAVE[BARKER13_PULSE_LEN] = {
-    127, 254, 127, 0,   127, 254, 127, 0,   127, 254, 127, 0,   127, 254, 127,
-    0,   127, 254, 127, 0,   127, 254, 127, 0,   127, 254, 127, 0,   127, 254,
-    127, 0,   127, 254, 127, 0,   127, 254, 127, 95,  127, 95,  127, 254, 127,
-    0,   127, 254, 127, 0,   127, 254, 127, 0,   127, 159, 127, 159, 127, 0,
-    127, 254, 127, 0,   127, 254, 127, 0,   127, 254, 127, 95,  127, 95,  127,
-    254, 127, 0,   127, 159, 127, 159, 127, 0,   127, 254, 127, 95,  127, 95,
-    127, 254, 127, 0,   127, 159, 127, 159, 127, 95,  127, 159, 127, 95};
+    BARKER_CHIP_POSITIVE, BARKER_CHIP_POSITIVE, BARKER_CHIP_POSITIVE,
+    BARKER_CHIP_POSITIVE, BARKER_CHIP_POSITIVE, BARKER_CHIP_NEGATIVE,
+    BARKER_CHIP_NEGATIVE, BARKER_CHIP_POSITIVE, BARKER_CHIP_POSITIVE,
+    BARKER_CHIP_NEGATIVE, BARKER_CHIP_POSITIVE, BARKER_CHIP_NEGATIVE,
+    BARKER_CHIP_POSITIVE};
+#undef BARKER_CHIP_POSITIVE
+#undef BARKER_CHIP_NEGATIVE
 
 // --- Timing & Network Timeouts ---
 // Delay in microseconds when polling for RX availability (Value: 50)
