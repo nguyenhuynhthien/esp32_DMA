@@ -105,21 +105,6 @@ void ReceiverDMAApp::processRawBuffer(int16_t mean) {
     const uint16_t* p_raw = g_raw_adc_buffer[idx];
     int16_t* p_send = g_send_adc_buffer[idx];
 
-#ifdef SHOW_SAMPLING_LOG
-    // Tìm Min/Max thô để chẩn đoán bão hòa phần cứng
-    uint16_t raw_min = 4095;
-    uint16_t raw_max = 0;
-    for (size_t iVal = 0; iVal < Constant::ADC_SAMPLES; ++iVal) {
-        uint16_t val = p_raw[iVal] & Constant::ADC_RESOLUTION_MAX;
-        if (val < raw_min) raw_min = val;
-        if (val > raw_max) raw_max = val;
-    }
-    
-    if (_log_cnt++ % Constant::DIAG_LOG_DIVIDER == 0) {
-        Serial.printf("[DIAG RX%d] Raw ADC Min: %u | Max: %u | Bias: %d\n", _receiverId, raw_min, raw_max, mean);
-    }
-#endif
-    
     // Mở rộng vòng lặp (Loop Unrolling) gấp 4 lần để tối ưu hóa pipeline của CPU
     size_t i = 0;
     for (; i < Constant::ADC_SAMPLES - 3; i += 4) {
@@ -254,14 +239,6 @@ void ReceiverDMAApp::receiveAndProcess(ComManager& com, uint16_t frameId, double
         int peak_idx = findSyncPeak(com.getTxGain());
 
         if (peak_idx == -1) {
-#ifdef SHOW_SAMPLING_LOG
-            _dropCount++;
-            if (_dropCount % 50 == 0) {
-                Serial.printf("[SYNC] Cảnh báo: Không tìm thấy đỉnh đồng bộ > %.1fV trong %d mẫu đầu. Đã bỏ qua %u xung.\n", 
-                              Constant::SYNC_THRESHOLD_VOLTS, Constant::SYNC_SEARCH_LEN, _dropCount);
-            }
-#endif
-            return;
         }
 
         volatile int shift = peak_idx - 1;
@@ -331,7 +308,9 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
     }
     uint64_t dsp_t_sync = esp_timer_get_time();
 
-    if (!txEnabled || has_valid_signal) {
+    // Synchronization failure must not stop the DSP/output pipeline. When no
+    // peak is found, the signal remains at its current alignment (shift=0).
+    {
         // 1. Gửi dữ liệu thô (Raw) ngay lập tức nếu đang ở chế độ STREAM_RAW và đúng kênh đang lựa chọn gửi
         if (com.getStreamMode() == ComManager::STREAM_RAW) {
             if (_receiverId == com.getSelectedRxChannel()) {

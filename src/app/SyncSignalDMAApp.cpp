@@ -268,16 +268,6 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
         uint64_t demux_time = esp_timer_get_time() - t_start_demux;
 #endif
 
-        // Debug first 20 samples channel IDs
-        static int debug_cnt = 0;
-        if (debug_cnt++ % 50 == 0) {
-            Serial.printf("[DEBUG] Channel IDs: ");
-            for (int i = 0; i < 20; ++i) {
-                Serial.printf("%d ", (raw_interleaved_buffer[i] >> 12) & 0xF);
-            }
-            Serial.printf("\n[DEBUG] RX1 count (unique): %u, RX2 count (unique): %u\n", rx1_count, rx2_count);
-        }
-
         // DSP luôn chạy cho cả hai receiver; rx_select chỉ quyết định kênh gửi UDP.
         // SyncTask có priority cao; không suspend scheduler vì DSP có logging
         // và các API Arduino có thể cần queue/semaphore.
@@ -292,8 +282,8 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
         g_workerTxEnabled = txEnabled;
         xTaskNotifyGive(g_rx1Task);
         xTaskNotifyGive(g_rx2Task);
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
+        ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
 #ifdef SHOW_TIMING_LOG
         uint64_t proc1_time = esp_timer_get_time() - t_start_proc1;
 #endif
@@ -305,7 +295,8 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
         // DSP timing records are printed by NetworkTask on Core 0.
 
     #ifdef SHOW_SAMPLING_LOG
-        if ((debug_cnt - 1) % Constant::DIAG_LOG_DIVIDER == 0) {
+        static uint32_t frameLogCount = 0;
+        if (frameLogCount++ % Constant::DIAG_LOG_DIVIDER == 0) {
             g_pendingFrameTimingLog.txPriMs = tx_pri_ms;
             g_pendingFrameTimingLog.txFsKhz = tx_fs_khz;
             g_pendingFrameTimingLog.framePriMs = priMs;
