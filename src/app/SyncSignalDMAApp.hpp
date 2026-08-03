@@ -9,6 +9,8 @@
 #endif
 #include "service/ComManager.hpp"
 
+void printPendingFrameTimingLog();
+
 
 class SyncSignalDMAApp {
 public:

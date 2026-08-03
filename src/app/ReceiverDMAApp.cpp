@@ -17,6 +17,43 @@ int16_t* g_compressed_I[2] = {nullptr, nullptr};
 int16_t* g_compressed_Q[2] = {nullptr, nullptr};
 static portMUX_TYPE g_demodCriticalMux = portMUX_INITIALIZER_UNLOCKED;
 
+struct DspTimingLog {
+    uint64_t raw_us = 0;
+    uint64_t iir_us = 0;
+    uint64_t sync_us = 0;
+    uint64_t preBlank_us = 0;
+    uint64_t blank_us = 0;
+    uint64_t demod_us = 0;
+    uint64_t demodWall_us = 0;
+    uint32_t demodCycles = 0;
+    uint64_t coeff_us = 0;
+    uint32_t coeffCycles = 0;
+    uint64_t mf_us = 0;
+    uint32_t mfCycles = 0;
+    uint64_t mag_us = 0;
+    uint64_t unexplained_us = 0;
+    uint64_t total_us = 0;
+    bool pending = false;
+};
+
+static DspTimingLog g_dspTimingLogs[2];
+static uint32_t g_dspTimingFrameCount[2] = {0, 0};
+
+void printPendingDspTimingLogs() {
+    for (int idx = 0; idx < 2; ++idx) {
+        DspTimingLog& log = g_dspTimingLogs[idx];
+        if (!log.pending) continue;
+        const int receiverId = idx + 1;
+        Serial.printf("[DSP RX%d] raw=%llu us | iir=%llu us | sync=%llu us | pre_blank=%llu us | blank=%llu us | demod=%llu us (wall=%llu us, %u cycles) | coeff=%llu us (%u cycles) | mf=%llu us (%u cycles) | mag=%llu us | unexplained=%llu us | total=%llu us\n",
+                      receiverId, log.raw_us, log.iir_us, log.sync_us,
+                      log.preBlank_us, log.blank_us, log.demod_us,
+                      log.demodWall_us, log.demodCycles, log.coeff_us,
+                      log.coeffCycles, log.mf_us, log.mfCycles, log.mag_us,
+                      log.unexplained_us, log.total_us);
+        log.pending = false;
+    }
+}
+
 
 ReceiverDMAApp::ReceiverDMAApp(AdcDMAService& adcService, uint8_t receiverId)
     : _adcService(adcService), _receiverId(receiverId) {}
@@ -297,14 +334,6 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
     uint64_t dsp_t_sync = esp_timer_get_time();
 
     if (!txEnabled || has_valid_signal) {
-#ifdef SHOW_SAMPLING_LOG
-        _loopCount++;
-        if (_loopCount % 50 == 0) {
-            Serial.printf("[LOG RX%d] Tx PRI: %.2f ms | Tx Fs: %.2f kHz | Rx PRI: %.2f ms | Rx Fs: %.2f kHz (Đọc trong %llu us)\n",
-                          _receiverId, txPriMs, txFsKhz, priMs, fs_actual / 1000.0, elapsed_time);
-        }
-#endif
-
         // 1. Gửi dữ liệu thô (Raw) ngay lập tức nếu đang ở chế độ STREAM_RAW và đúng kênh đang lựa chọn gửi
         if (com.getStreamMode() == ComManager::STREAM_RAW) {
             if (_receiverId == com.getSelectedRxChannel()) {
@@ -345,6 +374,8 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
         uint64_t coeff_wall_us = esp_timer_get_time() - coeff_wall_start;
 
         if (com.getStreamMode() == ComManager::STREAM_COMPRESSED) {
+            const bool captureDspTiming =
+                (++g_dspTimingFrameCount[idx] % Constant::DIAG_LOG_DIVIDER) == 0;
             uint32_t mf_cpu_start = readCpuCycleCount();
             performMatchedFiltering();
             uint32_t mf_cpu_cycles = readCpuCycleCount() - mf_cpu_start;
@@ -371,7 +402,7 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
             }
 
 #ifdef SHOW_TIMING_LOG
-            if (_loopCount % Constant::DIAG_LOG_DIVIDER == 0) {
+            if (captureDspTiming) {
                 uint32_t cpu_freq_mhz = ESP.getCpuFreqMHz();
                 uint64_t demod_cpu_us = (cpu_freq_mhz > 0)
                                       ? (demod_cpu_cycles / cpu_freq_mhz)
@@ -385,23 +416,23 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
                 uint64_t unexplained_us = (dsp_t_magnitude - dsp_t0 > accounted_us)
                                         ? (dsp_t_magnitude - dsp_t0 - accounted_us)
                                         : 0;
-                Serial.printf("[DSP RX%d] raw=%llu us | iir=%llu us | sync=%llu us | pre_blank=%llu us | blank=%llu us | demod=%llu us (wall=%llu us, %u cycles) | coeff=%llu us (%u cycles) | mf=%llu us (%u cycles) | mag=%llu us | unexplained=%llu us | total=%llu us\n",
-                              _receiverId,
-                              dsp_t_raw - dsp_t0,
-                              dsp_t_iir - dsp_t_raw,
-                              dsp_t_sync - dsp_t_iir,
-                              pre_blank_us,
-                              blank_us,
-                              demod_cpu_us,
-                              demod_wall_us,
-                              demod_cpu_cycles,
-                              coeff_wall_us,
-                              coeff_cpu_cycles,
-                              mf_wall_us,
-                              mf_cpu_cycles,
-                              magnitude_us,
-                              unexplained_us,
-                              dsp_t_magnitude - dsp_t0);
+                DspTimingLog& log = g_dspTimingLogs[idx];
+                log.raw_us = dsp_t_raw - dsp_t0;
+                log.iir_us = dsp_t_iir - dsp_t_raw;
+                log.sync_us = dsp_t_sync - dsp_t_iir;
+                log.preBlank_us = pre_blank_us;
+                log.blank_us = blank_us;
+                log.demod_us = demod_cpu_us;
+                log.demodWall_us = demod_wall_us;
+                log.demodCycles = demod_cpu_cycles;
+                log.coeff_us = coeff_wall_us;
+                log.coeffCycles = coeff_cpu_cycles;
+                log.mf_us = mf_wall_us;
+                log.mfCycles = mf_cpu_cycles;
+                log.mag_us = magnitude_us;
+                log.unexplained_us = unexplained_us;
+                log.total_us = dsp_t_magnitude - dsp_t0;
+                log.pending = true;
             }
 #endif
         } else {
@@ -459,14 +490,22 @@ void ReceiverDMAApp::performIQDemodulation(const int16_t* rawSamples) {
     sumQ = (int32_t)pQ[0] + pQ[1] + pQ[2];
 
     for (size_t n = 3; n < Constant::ADC_SAMPLES; ++n) {
+        const int16_t outgoingI = pI[n - 3];
+        const int16_t outgoingQ = pQ[n - 3];
         sumI += pI[n];
         sumQ += pQ[n];
         
         pI[n - 3] = (int16_t)(sumI >> 2); // Chia cho DEMOD_AVG_LEN = 4
         pQ[n - 3] = (int16_t)(sumQ >> 2);
         
-        sumI -= pI[n - 3];
-        sumQ -= pQ[n - 3];
+        sumI -= outgoingI;
+        sumQ -= outgoingQ;
+    }
+
+    // Các mẫu cuối chưa có đủ cửa sổ 4 mẫu; xóa để không giữ dữ liệu cũ.
+    for (size_t n = Constant::ADC_SAMPLES - 3; n < Constant::ADC_SAMPLES; ++n) {
+        pI[n] = 0;
+        pQ[n] = 0;
     }
 }
 
@@ -635,6 +674,7 @@ void ReceiverDMAApp::performBarker13MatchedFiltering(int filterEnd, int32_t roun
         int32_t sumI = 0;
         int32_t sumQ = 0;
 
+        #pragma GCC unroll 13
         for (int chip = 0; chip < 13; ++chip) {
             const int coefficient = chipSigns[chip] * coefficientMagnitude;
             const int base = 8 * chip;

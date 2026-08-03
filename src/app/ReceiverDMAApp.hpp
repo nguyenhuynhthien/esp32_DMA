@@ -8,6 +8,8 @@
 #include "service/ComManager.hpp"
 #include <Constant.h>
 
+void printPendingDspTimingLogs();
+
 class ReceiverDMAApp {
 public:
   ReceiverDMAApp(AdcDMAService &adcService, uint8_t receiverId);

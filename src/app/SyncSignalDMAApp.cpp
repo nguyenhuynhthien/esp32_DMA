@@ -3,6 +3,26 @@
 #include <soc/i2s_struct.h>
 #include <soc/i2s_reg.h>
 
+struct PendingFrameTimingLog {
+    double txPriMs = 0.0;
+    double txFsKhz = 0.0;
+    double framePriMs = 0.0;
+    double rxFsKhz = 0.0;
+    uint64_t elapsedUs = 0;
+    bool pending = false;
+};
+
+static PendingFrameTimingLog g_pendingFrameTimingLog;
+
+void printPendingFrameTimingLog() {
+    if (!g_pendingFrameTimingLog.pending) return;
+    const PendingFrameTimingLog log = g_pendingFrameTimingLog;
+    g_pendingFrameTimingLog.pending = false;
+    Serial.printf("[LOG] Tx PRI: %.2f ms | Tx Fs: %.2f kHz | Frame PRI: %.2f ms | Rx Fs: %.2f kHz (Đọc trong %llu us)\n",
+                  log.txPriMs, log.txFsKhz, log.framePriMs, log.rxFsKhz,
+                  log.elapsedUs);
+}
+
 SyncSignalDMAApp::SyncSignalDMAApp(AdcDMAService& adcService, TransmitterDMAApp& transmitterApp, ReceiverDMAApp& receiverApp1, ReceiverDMAApp& receiverApp2)
     : _adcService(adcService), _transmitterApp(transmitterApp), _receiverApp1(receiverApp1), _receiverApp2(receiverApp2) {}
 
@@ -86,6 +106,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 
         int last_transition_rx1 = -1;
         int last_transition_rx2 = -1;
+        bool fast_demux = false;
         size_t rx1_count = 0;
         size_t rx2_count = 0;
 
@@ -98,6 +119,33 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
             }
             // Đưa mẫu đầu tiên đã sạc đầy của kênh 1 vào bộ đệm
             rx1_buffer[rx1_count++] = raw_interleaved_buffer[last_transition_rx1] & Constant::ADC_RESOLUTION_MAX;
+
+            // Sau khi vote pha, pattern ổn định là RX1 tại phase+1 rồi mỗi 4 mẫu
+            // từ phase+3, còn RX2 bắt đầu tại phase+5 và cũng lặp mỗi 4 mẫu.
+            // Chỉ dùng fast path khi vote đủ tin cậy; fallback bên dưới vẫn giữ
+            // decoder channel-ID đầy đủ cho các frame bất thường.
+            const size_t rx1_second = (size_t)phase + 3;
+            const size_t rx2_first = (size_t)phase + 5;
+            if (rx1_second < sizeof(raw_interleaved_buffer) / sizeof(raw_interleaved_buffer[0]) &&
+                rx2_first < sizeof(raw_interleaved_buffer) / sizeof(raw_interleaved_buffer[0])) {
+                for (size_t sample = rx1_second;
+                     sample < sizeof(raw_interleaved_buffer) / sizeof(raw_interleaved_buffer[0]) &&
+                     (rx1_count < Constant::ADC_SAMPLES || rx2_count < Constant::ADC_SAMPLES);
+                     sample += 4) {
+                    if (rx1_count < Constant::ADC_SAMPLES) {
+                        rx1_buffer[rx1_count++] = raw_interleaved_buffer[sample] & Constant::ADC_RESOLUTION_MAX;
+                    }
+                    const size_t rx2_sample = sample + 2;
+                    if (rx2_sample < sizeof(raw_interleaved_buffer) / sizeof(raw_interleaved_buffer[0]) &&
+                        rx2_count < Constant::ADC_SAMPLES) {
+                        rx2_buffer[rx2_count++] = raw_interleaved_buffer[rx2_sample] & Constant::ADC_RESOLUTION_MAX;
+                    }
+                }
+                fast_demux = (rx1_count == Constant::ADC_SAMPLES && rx2_count == Constant::ADC_SAMPLES);
+                if (fast_demux) {
+                    last_transition_rx1 = -1;
+                }
+            }
         } else {
             // Fallback: Tìm điểm chuyển tiếp CH4 -> CH5 đầu tiên trong 128 mẫu đầu
             int start_idx = -1;
@@ -117,7 +165,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
         }
 
         // Vòng lặp bánh đà bắt đầu từ điểm pha đã xác định
-        if (last_transition_rx1 != -1) {
+        if (last_transition_rx1 != -1 && !fast_demux) {
             size_t total_samples = Constant::ADC_SAMPLES * 4 + 16;
             for (size_t i = last_transition_rx1 + 1; i < total_samples - 1; ++i) {
                 uint16_t val0 = raw_interleaved_buffer[i];
@@ -199,16 +247,21 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
         uint64_t t_start_proc2 = esp_timer_get_time();
 #endif
         _receiverApp2.process(rx2_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time, txEnabled);
+        // DSP timing records are printed by NetworkTask on Core 0.
+
+    #ifdef SHOW_SAMPLING_LOG
+        if ((debug_cnt - 1) % Constant::DIAG_LOG_DIVIDER == 0) {
+            g_pendingFrameTimingLog.txPriMs = tx_pri_ms;
+            g_pendingFrameTimingLog.txFsKhz = tx_fs_khz;
+            g_pendingFrameTimingLog.framePriMs = priMs;
+            g_pendingFrameTimingLog.rxFsKhz =
+                (double)(Constant::ADC_SAMPLES) * 1000.0 / (double)elapsed_time;
+            g_pendingFrameTimingLog.elapsedUs = elapsed_time;
+            g_pendingFrameTimingLog.pending = true;
+        }
+    #endif
 #ifdef SHOW_TIMING_LOG
         uint64_t proc2_time = esp_timer_get_time() - t_start_proc2;
-#endif
-
-#ifdef SHOW_TIMING_LOG
-        if ((debug_cnt - 1) % 50 == 0) {
-            uint64_t stop_start_time = 0;
-            Serial.printf("[TIMING] Tre_khoi_dong_ADC: %llu us | Tach_kenh: %llu us | Loc_Dongbo_Gui_Kenh1: %llu us | Loc_Dongbo_Gui_Kenh2: %llu us\n",
-                          stop_start_time, demux_time, proc1_time, proc2_time);
-        }
 #endif
 
         // Tăng frameId cho chu kỳ phát xung tiếp theo

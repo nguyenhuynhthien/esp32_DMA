@@ -83,6 +83,8 @@ void setup() {
           } else {
              vTaskDelay(pdMS_TO_TICKS(1));
           }
+           printPendingDspTimingLogs();
+           printPendingFrameTimingLog();
         }
       },
       "NetworkTask", 4096, nullptr, 4, nullptr, 0
