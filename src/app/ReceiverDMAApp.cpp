@@ -15,8 +15,6 @@ int16_t* g_demod_I[2] = {nullptr, nullptr};
 int16_t* g_demod_Q[2] = {nullptr, nullptr};
 int16_t* g_compressed_I[2] = {nullptr, nullptr};
 int16_t* g_compressed_Q[2] = {nullptr, nullptr};
-static portMUX_TYPE g_demodCriticalMux = portMUX_INITIALIZER_UNLOCKED;
-
 struct DspTimingLog {
     uint64_t raw_us = 0;
     uint64_t iir_us = 0;
@@ -350,14 +348,12 @@ void ReceiverDMAApp::process(const uint16_t* rawSamples, ComManager& com, uint16
                             ? (Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING)
                             : (Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING);
         uint64_t blank_wall_start = esp_timer_get_time();
-        portENTER_CRITICAL(&g_demodCriticalMux);
         memset(g_send_adc_buffer[idx], 0, blankSamples * sizeof(int16_t));
         uint64_t blank_wall_end = esp_timer_get_time();
 
         uint64_t demod_wall_start = esp_timer_get_time();
         uint32_t demod_cpu_start = readCpuCycleCount();
         performIQDemodulation(g_send_adc_buffer[idx]);
-        portEXIT_CRITICAL(&g_demodCriticalMux);
         uint32_t demod_cpu_cycles = readCpuCycleCount() - demod_cpu_start;
         uint64_t demod_wall_us = esp_timer_get_time() - demod_wall_start;
         uint64_t dsp_t_demod = demod_wall_start + demod_wall_us;

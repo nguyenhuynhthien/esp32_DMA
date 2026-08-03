@@ -1,5 +1,9 @@
 #include "ComManager.hpp"
 
+static uint16_t g_asyncSendFrameId = 0;
+static uint8_t g_asyncSendReceiverId = 0;
+static int16_t g_asyncSendSamples[Constant::ADC_SAMPLES];
+
 ComManager::ComManager(const char *ssid, const char *password,
                        const char *hostName, uint16_t port)
     : _ssid(ssid), _password(password), _hostName(hostName), _port(port),
@@ -160,7 +164,8 @@ bool ComManager::isStreaming() { return _isStreaming; }
 
 void ComManager::sendFrame(uint16_t frameId, const int16_t *samples,
                            size_t size, uint8_t receiverId) {
-  if (!_isStreaming || size != Constant::ADC_SAMPLES || receiverId != _selectedRxChannel) {
+    if (!_isStreaming || size != Constant::ADC_SAMPLES ||
+      receiverId != _selectedRxChannel) {
     return;
   }
 
@@ -246,7 +251,8 @@ void ComManager::sendTarget(float range, uint16_t angle, float strength,
 
 void ComManager::sendFrameAsync(uint16_t frameId, const int16_t *samples,
                                 size_t size, uint8_t receiverId) {
-  if (!_isStreaming || size != Constant::ADC_SAMPLES || receiverId != _selectedRxChannel) {
+    if (!_isStreaming || size != Constant::ADC_SAMPLES ||
+      receiverId != _selectedRxChannel) {
     return;
   }
 
@@ -257,7 +263,9 @@ void ComManager::sendFrameAsync(uint16_t frameId, const int16_t *samples,
   // Determine queue slot based on receiverId (Rx0 Sum -> slot 2, Rx1 -> slot 0,
   // Rx2 -> slot 1)
   int slot = (receiverId == 0) ? 2 : (receiverId - 1);
+  portENTER_CRITICAL(&_queueMux);
   if (_queuedFrames[slot].ready) {
+    portEXIT_CRITICAL(&_queueMux);
 #ifdef SHOW_COMM_LOG
     _statsFramesDropped++;
 #endif
@@ -268,15 +276,27 @@ void ComManager::sendFrameAsync(uint16_t frameId, const int16_t *samples,
   _queuedFrames[slot].receiverId = receiverId;
   memcpy(_queuedFrames[slot].samples, samples, Constant::ADC_SAMPLES * sizeof(int16_t));
   _queuedFrames[slot].ready = true;
+  portEXIT_CRITICAL(&_queueMux);
 }
 
 bool ComManager::processAsyncSends() {
   bool sentAny = false;
   for (int i = 0; i < 3; ++i) {
+    bool hasFrame = false;
+    portENTER_CRITICAL(&_queueMux);
     if (_queuedFrames[i].ready) {
-      sendFrame(_queuedFrames[i].frameId, _queuedFrames[i].samples,
-                Constant::ADC_SAMPLES, _queuedFrames[i].receiverId);
+      g_asyncSendFrameId = _queuedFrames[i].frameId;
+      g_asyncSendReceiverId = _queuedFrames[i].receiverId;
+      memcpy(g_asyncSendSamples, _queuedFrames[i].samples,
+             Constant::ADC_SAMPLES * sizeof(int16_t));
       _queuedFrames[i].ready = false;
+      hasFrame = true;
+    }
+    portEXIT_CRITICAL(&_queueMux);
+
+    if (hasFrame) {
+      sendFrame(g_asyncSendFrameId, g_asyncSendSamples,
+            Constant::ADC_SAMPLES, g_asyncSendReceiverId);
       sentAny = true;
       // Yield to let the WiFi stack process and prevent LwIP lockup
       vTaskDelay(pdMS_TO_TICKS(1));

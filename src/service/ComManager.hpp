@@ -63,6 +63,7 @@ private:
         volatile bool ready;
     };
     QueuedFrame _queuedFrames[3];
+    portMUX_TYPE _queueMux = portMUX_INITIALIZER_UNLOCKED;
 
     // UDP performance and congestion statistics
 #ifdef SHOW_COMM_LOG

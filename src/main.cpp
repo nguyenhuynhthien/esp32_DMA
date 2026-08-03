@@ -68,6 +68,7 @@ void setup() {
   simulatorApp.init();
 #endif
   syncApp.init();
+  syncApp.startParallelProcessing();
 
   // Tạo NetworkTask chạy trên Core 0 (ưu tiên 4) để xử lý toàn bộ truyền thông UDP (nhận và gửi)
   xTaskCreatePinnedToCore(

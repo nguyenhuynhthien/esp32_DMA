@@ -14,6 +14,19 @@ struct PendingFrameTimingLog {
 
 static PendingFrameTimingLog g_pendingFrameTimingLog;
 
+static TaskHandle_t g_rx1Task = nullptr;
+static TaskHandle_t g_rx2Task = nullptr;
+static TaskHandle_t g_syncTask = nullptr;
+static ComManager* g_workerCom = nullptr;
+static uint16_t* g_workerRx1Buffer = nullptr;
+static uint16_t* g_workerRx2Buffer = nullptr;
+static uint16_t g_workerFrameId = 0;
+static double g_workerPriMs = 0.0;
+static double g_workerTxPriMs = 0.0;
+static double g_workerTxFsKhz = 0.0;
+static uint64_t g_workerElapsedUs = 0;
+static bool g_workerTxEnabled = false;
+
 void printPendingFrameTimingLog() {
     if (!g_pendingFrameTimingLog.pending) return;
     const PendingFrameTimingLog log = g_pendingFrameTimingLog;
@@ -30,7 +43,40 @@ void SyncSignalDMAApp::init() {
     // Services and Apps are initialized externally or coordinated
 }
 
+void SyncSignalDMAApp::startParallelProcessing() {
+    static uint16_t rx1Buffer[Constant::ADC_SAMPLES];
+    static uint16_t rx2Buffer[Constant::ADC_SAMPLES];
+    g_workerRx1Buffer = rx1Buffer;
+    g_workerRx2Buffer = rx2Buffer;
+
+    xTaskCreatePinnedToCore(
+        [](void* parameter) {
+            auto* app = static_cast<ReceiverDMAApp*>(parameter);
+            while (true) {
+                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                app->process(g_workerRx1Buffer, *g_workerCom, g_workerFrameId,
+                            g_workerPriMs, g_workerTxPriMs, g_workerTxFsKhz,
+                            g_workerElapsedUs, g_workerTxEnabled);
+                xTaskNotifyGive(g_syncTask);
+            }
+        }, "Rx1DspTask", 8192, &_receiverApp1, 22, &g_rx1Task, 1);
+
+    xTaskCreatePinnedToCore(
+        [](void* parameter) {
+            auto* app = static_cast<ReceiverDMAApp*>(parameter);
+            while (true) {
+                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                app->process(g_workerRx2Buffer, *g_workerCom, g_workerFrameId,
+                            g_workerPriMs, g_workerTxPriMs, g_workerTxFsKhz,
+                            g_workerElapsedUs, g_workerTxEnabled);
+                xTaskNotifyGive(g_syncTask);
+            }
+        }, "Rx2DspTask", 8192, &_receiverApp2, 22, &g_rx2Task, 0);
+}
+
 void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId, double priMs) {
+    g_syncTask = xTaskGetCurrentTaskHandle();
+    g_workerCom = &com;
     // 1. Dừng ADC DMA trước để đưa về trạng thái tĩnh hoàn toàn (bỏ qua chu kỳ đầu tiên)
     static bool first_call = true;
     if (!first_call) {
@@ -68,8 +114,8 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 
     // 5. Nhận và xử lý dữ liệu từ ADC DMA cho cả 2 kênh (dư thêm 16 mẫu để đảm bảo vòng lặp trích đủ 2048 mẫu)
     static uint16_t raw_interleaved_buffer[Constant::ADC_SAMPLES * 4 + 16];
-    static uint16_t rx1_buffer[Constant::ADC_SAMPLES];
-    static uint16_t rx2_buffer[Constant::ADC_SAMPLES];
+    uint16_t* rx1_buffer = g_workerRx1Buffer;
+    uint16_t* rx2_buffer = g_workerRx2Buffer;
     
     size_t bytes_read = 0;
     esp_err_t res = _adcService.readSamples(raw_interleaved_buffer, sizeof(raw_interleaved_buffer), bytes_read);
@@ -238,7 +284,16 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 #ifdef SHOW_TIMING_LOG
         uint64_t t_start_proc1 = esp_timer_get_time();
 #endif
-        _receiverApp1.process(rx1_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time, txEnabled);
+        g_workerFrameId = frameId;
+        g_workerPriMs = priMs;
+        g_workerTxPriMs = tx_pri_ms;
+        g_workerTxFsKhz = tx_fs_khz;
+        g_workerElapsedUs = elapsed_time;
+        g_workerTxEnabled = txEnabled;
+        xTaskNotifyGive(g_rx1Task);
+        xTaskNotifyGive(g_rx2Task);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 #ifdef SHOW_TIMING_LOG
         uint64_t proc1_time = esp_timer_get_time() - t_start_proc1;
 #endif
@@ -246,7 +301,7 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
 #ifdef SHOW_TIMING_LOG
         uint64_t t_start_proc2 = esp_timer_get_time();
 #endif
-        _receiverApp2.process(rx2_buffer, com, frameId, priMs, tx_pri_ms, tx_fs_khz, elapsed_time, txEnabled);
+        // RX1 and RX2 workers have both completed the frame.
         // DSP timing records are printed by NetworkTask on Core 0.
 
     #ifdef SHOW_SAMPLING_LOG
