@@ -59,7 +59,10 @@ void SimulatorDMAApp::injectNoise(uint16_t* buffer, size_t sampleCount) {
 
 uint32_t SimulatorDMAApp::fireSimulatedTransmission(TransmitterDMAApp& transmitterApp, ComManager::PulseType pulseType, float txGain) {
     // Phát chuỗi xung ghép (xung gốc + khoảng lặng 500 mẫu + xung echo) một lần duy nhất ra DAC
-    return transmitterApp.transmitSimulationBurst(pulseType, txGain, Constant::SIMULATOR_DELAY_SAMPLES, 0.15f);
+    const float echoGain = (pulseType == ComManager::PULSE_SINGLE)
+                               ? Constant::SIMULATOR_SINGLE_ECHO_GAIN
+                               : Constant::SIMULATOR_BARKER13_ECHO_GAIN;
+    return transmitterApp.transmitSimulationBurst(pulseType, txGain, Constant::SIMULATOR_DELAY_SAMPLES, echoGain);
 }
 
 #endif // SIMULATION_MODE

@@ -15,6 +15,11 @@ namespace Constant {
 #ifdef SIMULATION_MODE
 // Độ trễ echo giả lập, tính theo số mẫu.
 constexpr size_t SIMULATOR_DELAY_SAMPLES = 500;
+constexpr size_t SIMULATOR_EDGE_SAMPLES = 4;
+// Độ dịch tần Doppler của echo giả lập; giá trị âm mô phỏng target đi xa.
+constexpr float SIMULATOR_DOPPLER_SHIFT_HZ = 500.0f;
+constexpr float SIMULATOR_SINGLE_ECHO_GAIN = 0.25f;
+constexpr float SIMULATOR_BARKER13_ECHO_GAIN = 0.15f;
 #endif
 
 // --- Base Sonar & DSP Parameters ---

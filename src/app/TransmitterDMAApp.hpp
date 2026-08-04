@@ -20,6 +20,12 @@ private:
     uint8_t _barker13_pulse[Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING];
 #ifdef SIMULATION_MODE
     uint8_t _burst_buffer[800]; // Buffer ghép xung gốc và echo để tránh jitter
+    uint8_t _single_echo_pulse[Constant::FILTER_COEFFS_LEN + Constant::DAC_PULSE_TOTAL_PADDING];
+    uint8_t _barker13_echo_pulse[Constant::BARKER13_PULSE_LEN + Constant::DAC_PULSE_TOTAL_PADDING];
+
+    void buildSimulationEchoPulse(const uint8_t* source_pulse,
+                                  uint8_t* echo_pulse,
+                                  size_t pulse_len);
 #endif
 };
 
