@@ -40,6 +40,8 @@ ReceiverDMAApp receiverApp2(adcService, Constant::RECEIVER_ID_RX2);
 SimulatorDMAApp simulatorApp;
 // Sync app dùng simulator để chèn nhiễu sau khi nhận dữ liệu ADC.
 SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp1, receiverApp2, simulatorApp);
+#else
+SyncSignalDMAApp syncApp(adcService, transmitterApp, receiverApp1, receiverApp2);
 #endif
 
 uint16_t frameId = 0;

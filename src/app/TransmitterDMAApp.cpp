@@ -44,6 +44,7 @@ uint32_t IRAM_ATTR TransmitterDMAApp::transmit(ComManager::PulseType type, float
     return _dacService.transmitPulse(attenuated_pulse, len);
 }
 
+#ifdef SIMULATION_MODE
 uint32_t IRAM_ATTR TransmitterDMAApp::transmitSimulationBurst(ComManager::PulseType type, float txGain, size_t delaySamples, float echoGain) {
     size_t pulse_len = 0;
     const uint8_t* source_pulse = nullptr;
@@ -92,3 +93,4 @@ uint32_t IRAM_ATTR TransmitterDMAApp::transmitSimulationBurst(ComManager::PulseT
     // 4. Phát toàn bộ burst ra DAC một lần duy nhất
     return _dacService.transmitPulse(_burst_buffer, write_idx);
 }
+#endif // SIMULATION_MODE
