@@ -12,8 +12,10 @@
 #define SIMULATION_MODE
 
 namespace Constant {
-// Delay in samples for simulated echo signal (Value: 1000)
+#ifdef SIMULATION_MODE
+// Độ trễ echo giả lập, tính theo số mẫu.
 constexpr size_t SIMULATOR_DELAY_SAMPLES = 500;
+#endif
 
 // --- Base Sonar & DSP Parameters ---
 // Center frequency of the transducer in Hz (Value: 40000.0)
@@ -39,6 +41,11 @@ constexpr int ADC_BITS = 12;
 // 2048.0f)
 constexpr float ADC_DC_OFFSET =
     static_cast<float>(ADC_RESOLUTION_MAX + 1) / 2.0f;
+
+#ifdef SIMULATION_MODE
+// Độ lệch chuẩn nhiễu Gaussian tính theo mã ADC.
+constexpr int ADC_NOISE_STDDEV = 64;
+#endif
 
 // DC bias offset for the 8-bit DAC output (Value: 127)
 constexpr uint8_t DAC_DC_BIAS = 127;

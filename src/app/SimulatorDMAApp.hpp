@@ -13,14 +13,17 @@ public:
     SimulatorDMAApp();
     void init();
     uint32_t fireSimulatedTransmission(TransmitterDMAApp& transmitterApp, ComManager::PulseType pulseType, float txGain);
+    // Chèn nhiễu sau khi buffer đã nhận dữ liệu từ ADC DMA.
+    void injectNoise(uint16_t* buffer, size_t sampleCount);
 
 private:
-    static constexpr size_t NOISE_TABLE_SIZE = 512;
     static constexpr size_t SIN_LUT_SIZE = 256;
-    int16_t _noise_table[NOISE_TABLE_SIZE];
+    static constexpr uint32_t FALLBACK_NOISE_SEED = 0x6D2B79F5u;
     static int16_t _sin_lut[SIN_LUT_SIZE];
     static bool _sin_lut_initialized;
-    size_t _noise_idx;
+    uint32_t _noise_state;
+
+    uint32_t nextNoiseValue();
 };
 
 #endif // SIMULATION_MODE

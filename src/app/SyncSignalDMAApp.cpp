@@ -36,8 +36,13 @@ void printPendingFrameTimingLog() {
                   log.elapsedUs);
 }
 
+#ifdef SIMULATION_MODE
+SyncSignalDMAApp::SyncSignalDMAApp(AdcDMAService& adcService, TransmitterDMAApp& transmitterApp, ReceiverDMAApp& receiverApp1, ReceiverDMAApp& receiverApp2, SimulatorDMAApp& simulatorApp)
+    : _adcService(adcService), _transmitterApp(transmitterApp), _receiverApp1(receiverApp1), _receiverApp2(receiverApp2), _simulatorApp(simulatorApp) {}
+#else
 SyncSignalDMAApp::SyncSignalDMAApp(AdcDMAService& adcService, TransmitterDMAApp& transmitterApp, ReceiverDMAApp& receiverApp1, ReceiverDMAApp& receiverApp2)
     : _adcService(adcService), _transmitterApp(transmitterApp), _receiverApp1(receiverApp1), _receiverApp2(receiverApp2) {}
+#endif
 
 void SyncSignalDMAApp::init() {
     // Services and Apps are initialized externally or coordinated
@@ -119,6 +124,15 @@ void IRAM_ATTR SyncSignalDMAApp::runIteration(ComManager& com, uint16_t& frameId
     
     size_t bytes_read = 0;
     esp_err_t res = _adcService.readSamples(raw_interleaved_buffer, sizeof(raw_interleaved_buffer), bytes_read);
+#ifdef SIMULATION_MODE
+    // Mô phỏng nhiễu sau khi ADC DMA hoàn tất, trước bước giải ghép hai kênh.
+    if (res == ESP_OK && bytes_read >= sizeof(uint16_t)) {
+        size_t sampleCount = bytes_read / sizeof(uint16_t);
+        const size_t maxSampleCount = sizeof(raw_interleaved_buffer) / sizeof(uint16_t);
+        if (sampleCount > maxSampleCount) sampleCount = maxSampleCount;
+        _simulatorApp.injectNoise(raw_interleaved_buffer, sampleCount);
+    }
+#endif
     uint64_t elapsed_time = esp_timer_get_time() - adc_start_time;
     // Khấu trừ khoảng 203 us trễ khởi động mềm của driver I2S để tính tần số lấy mẫu thực tế chính xác
     if (elapsed_time > 203) {
